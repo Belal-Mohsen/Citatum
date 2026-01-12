@@ -1,48 +1,29 @@
-from contextlib import asynccontextmanager
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 
-from src.routes import base
+from src.core.app import create_app
 from src.utils.config import config
+from src.utils.logger import setup_logging, get_logger
 
+# Set up logging before creating the app
+setup_logging()
 
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # Startup
-    yield
-    # Shutdown
-    pass
-
+logger = get_logger(__name__)
 
 # Create FastAPI app
-app = FastAPI(
-    title=config.app_name,
-    description="Research Reproducibility and Traceability Assistant for processing academic documents into citable evidence chunks and retrieving verifiable evidence with exact quotes and provenance.",
-    version=config.app_version,
-    lifespan=lifespan,
-)
-
-# Configure CORS
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],  
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# Include routers
-app.include_router(base.router)
+app = create_app()
 
 
 def main():
     """Run the FastAPI application with uvicorn"""
+    from src.utils.logger import get_uvicorn_log_config
+    log_config = get_uvicorn_log_config()
+    
     uvicorn.run(
         "src.main:app",
         host=config.api_host,
         port=config.api_port,
         reload=config.debug,
+        log_config=log_config,
     )
 
 

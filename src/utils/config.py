@@ -1,3 +1,4 @@
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from typing import Literal
 
@@ -45,6 +46,26 @@ class Config(BaseSettings):
     api_host: str = "0.0.0.0"
     api_port: int = 8000
     debug: bool = False
+    cors_origins: str = "*"  # Comma-separated list of allowed origins, or "*" for all
+    
+    # Database Configuration
+    database_url: str = Field(
+        default="",
+        description="PostgreSQL database connection URL. Must be set via DATABASE_URL environment variable."
+    )
+    
+    def get_database_url(self) -> str:
+        """
+        Get database URL with validation.
+        Raises ValueError if DATABASE_URL is not set.
+        """
+        if not self.database_url or not self.database_url.strip():
+            raise ValueError(
+                "DATABASE_URL environment variable is required but not set. "
+                "Please set DATABASE_URL in your .env file. "
+                "Example: DATABASE_URL=postgresql://user:password@localhost:5432/citatum"
+            )
+        return self.database_url
     
     # Logging
     log_level: str = "INFO"
