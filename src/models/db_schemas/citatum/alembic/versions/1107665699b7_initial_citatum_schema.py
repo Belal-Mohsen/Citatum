@@ -62,38 +62,38 @@ def upgrade() -> None:
     op.create_index('ix_document_type', 'documents', ['document_type'], unique=False)
     op.create_index('ix_document_doi', 'documents', ['document_doi'], unique=False)
     
-    # Create citations table
+    # Create chunks table
     op.create_table(
-        'citations',
-        sa.Column('citation_id', sa.Integer(), autoincrement=True, nullable=False),
-        sa.Column('citation_uuid', postgresql.UUID(as_uuid=False), server_default=sa.text('uuid_generate_v4()'), nullable=False),
-        sa.Column('citation_text', sa.Text(), nullable=False),
-        sa.Column('citation_metadata', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
-        sa.Column('citation_order', sa.Integer(), nullable=False),
-        sa.Column('citation_page_number', sa.Integer(), nullable=True),
-        sa.Column('citation_section', sa.String(), nullable=True),
-        sa.Column('citation_topic_id', sa.Integer(), nullable=False),
-        sa.Column('citation_document_id', sa.Integer(), nullable=False),
+        'chunks',
+        sa.Column('chunk_id', sa.Integer(), autoincrement=True, nullable=False),
+        sa.Column('chunk_uuid', postgresql.UUID(as_uuid=False), server_default=sa.text('uuid_generate_v4()'), nullable=False),
+        sa.Column('chunk_text', sa.Text(), nullable=False),
+        sa.Column('chunk_metadata', postgresql.JSONB(astext_type=sa.Text()), nullable=True),
+        sa.Column('chunk_order', sa.Integer(), nullable=False),
+        sa.Column('chunk_page_number', sa.Integer(), nullable=True),
+        sa.Column('chunk_section', sa.String(), nullable=True),
+        sa.Column('chunk_topic_id', sa.Integer(), nullable=False),
+        sa.Column('chunk_document_id', sa.Integer(), nullable=False),
         sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
         sa.Column('updated_at', sa.DateTime(timezone=True), nullable=True),
-        sa.ForeignKeyConstraint(['citation_topic_id'], ['topics.topic_id'], ondelete='CASCADE'),
-        sa.ForeignKeyConstraint(['citation_document_id'], ['documents.document_id'], ondelete='CASCADE'),
-        sa.PrimaryKeyConstraint('citation_id'),
-        sa.UniqueConstraint('citation_uuid')
+        sa.ForeignKeyConstraint(['chunk_topic_id'], ['topics.topic_id'], ondelete='CASCADE'),
+        sa.ForeignKeyConstraint(['chunk_document_id'], ['documents.document_id'], ondelete='CASCADE'),
+        sa.PrimaryKeyConstraint('chunk_id'),
+        sa.UniqueConstraint('chunk_uuid')
     )
-    op.create_index(op.f('ix_citations_citation_uuid'), 'citations', ['citation_uuid'], unique=True)
-    op.create_index('ix_citation_topic_id', 'citations', ['citation_topic_id'], unique=False)
-    op.create_index('ix_citation_document_id', 'citations', ['citation_document_id'], unique=False)
-    op.create_index('ix_citation_page_number', 'citations', ['citation_page_number'], unique=False)
+    op.create_index(op.f('ix_chunks_chunk_uuid'), 'chunks', ['chunk_uuid'], unique=True)
+    op.create_index('ix_chunk_topic_id', 'chunks', ['chunk_topic_id'], unique=False)
+    op.create_index('ix_chunk_document_id', 'chunks', ['chunk_document_id'], unique=False)
+    op.create_index('ix_chunk_page_number', 'chunks', ['chunk_page_number'], unique=False)
 
 
 def downgrade() -> None:
-    # Drop citations table
-    op.drop_index('ix_citation_page_number', table_name='citations')
-    op.drop_index('ix_citation_document_id', table_name='citations')
-    op.drop_index('ix_citation_topic_id', table_name='citations')
-    op.drop_index(op.f('ix_citations_citation_uuid'), table_name='citations')
-    op.drop_table('citations')
+    # Drop chunks table
+    op.drop_index('ix_chunk_page_number', table_name='chunks')
+    op.drop_index('ix_chunk_document_id', table_name='chunks')
+    op.drop_index('ix_chunk_topic_id', table_name='chunks')
+    op.drop_index(op.f('ix_chunks_chunk_uuid'), table_name='chunks')
+    op.drop_table('chunks')
     
     # Drop documents table
     op.drop_index('ix_document_doi', table_name='documents')

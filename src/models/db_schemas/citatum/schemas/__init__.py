@@ -2,6 +2,6 @@
 
 from .topic import Topic
 from .document import Document
-from .citation import Citation
+from .chunk import Chunk
 
-__all__ = ["Topic", "Document", "Citation"]
+__all__ = ["Topic", "Document", "Chunk"]

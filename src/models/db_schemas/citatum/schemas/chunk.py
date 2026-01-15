@@ -11,16 +11,16 @@ if TYPE_CHECKING:
     from .document import Document
 
 
-class Citation(CitatumBase):
-    """SQLAlchemy model for the citations table"""
+class Chunk(CitatumBase):
+    """SQLAlchemy model for the chunks table"""
     
-    __tablename__ = "citations"
+    __tablename__ = "chunks"
     
     # Primary key
-    citation_id: int = Column(Integer, primary_key=True, autoincrement=True)
+    chunk_id: int = Column(Integer, primary_key=True, autoincrement=True)
     
     # UUID
-    citation_uuid: str = Column(
+    chunk_uuid: str = Column(
         UUID(as_uuid=False),
         unique=True,
         nullable=False,
@@ -28,20 +28,20 @@ class Citation(CitatumBase):
         index=True
     )
     
-    # Citation fields
-    citation_text: str = Column(Text, nullable=False)
-    citation_metadata: dict[str, Any] | None = Column(JSONB, nullable=True)
-    citation_order: int = Column(Integer, nullable=False)
-    citation_page_number: int | None = Column(Integer, nullable=True)
-    citation_section: str | None = Column(String, nullable=True)
+    # Chunk fields
+    chunk_text: str = Column(Text, nullable=False)
+    chunk_metadata: dict[str, Any] | None = Column(JSONB, nullable=True)
+    chunk_order: int = Column(Integer, nullable=False)
+    chunk_page_number: int | None = Column(Integer, nullable=True)
+    chunk_section: str | None = Column(String, nullable=True)
     
     # Foreign keys
-    citation_topic_id: int = Column(
+    chunk_topic_id: int = Column(
         Integer,
         ForeignKey("topics.topic_id", ondelete="CASCADE"),
         nullable=False
     )
-    citation_document_id: int = Column(
+    chunk_document_id: int = Column(
         Integer,
         ForeignKey("documents.document_id", ondelete="CASCADE"),
         nullable=False
@@ -62,17 +62,17 @@ class Citation(CitatumBase):
     # Relationships
     topic: Mapped["Topic"] = relationship(
         "Topic",
-        back_populates="citations"
+        back_populates="chunks"
     )
     document: Mapped["Document"] = relationship(
         "Document",
-        back_populates="citations"
+        back_populates="chunks"
     )
     
     # Indexes
     __table_args__ = (
-        Index("ix_citation_topic_id", "citation_topic_id"),
-        Index("ix_citation_document_id", "citation_document_id"),
-        Index("ix_citation_page_number", "citation_page_number"),
+        Index("ix_chunk_topic_id", "chunk_topic_id"),
+        Index("ix_chunk_document_id", "chunk_document_id"),
+        Index("ix_chunk_page_number", "chunk_page_number"),
     )
     

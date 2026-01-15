@@ -8,7 +8,7 @@ from src.models.db_schemas.citatum.citatum_base import CitatumBase
 
 if TYPE_CHECKING:
     from .document import Document
-    from .citation import Citation
+    from .chunk import Chunk
 
 
 
@@ -51,8 +51,8 @@ class Topic(CitatumBase):
         back_populates="topic",
         cascade="all, delete-orphan"
     )
-    citations: Mapped[List["Citation"]] = relationship(
-        "Citation",
+    chunks: Mapped[List["Chunk"]] = relationship(
+        "Chunk",
         back_populates="topic",
         cascade="all, delete-orphan"
     )
