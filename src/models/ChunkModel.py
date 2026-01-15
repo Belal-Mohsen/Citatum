@@ -18,6 +18,7 @@ class ChunkModel(BaseDataModel):
             db_client: Callable that returns an AsyncSession
         """
         super().__init__(db_client)
+        self.db_client = db_client
     
     @classmethod
     async def create_instance(cls, db_client: object) -> "ChunkModel":

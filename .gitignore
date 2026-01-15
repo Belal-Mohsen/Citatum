@@ -138,11 +138,14 @@ celerybeat.pid
 .env
 .envrc
 .venv
-env/
 venv/
 ENV/
 env.bak/
 venv.bak/
+
+# Environment files (ignore actual .env files, but keep .example files)
+env/**/.env
+!env/**/.env.example
 
 # Spyder project settings
 .spyderproject

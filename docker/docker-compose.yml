@@ -1,0 +1,36 @@
+# TODO: Add other services as needed:
+#       - PostgreSQL (pgvector) for vector database support
+#       - Redis for caching and Celery results backend
+#       - RabbitMQ for Celery message broker
+#       - Celery Worker for async task processing
+#       - Celery Beat for scheduled tasks
+#       - Flower for Celery monitoring
+#       - Qdrant or other vector database service
+#       - Nginx reverse proxy
+#       - Prometheus for metrics collection
+#       - Grafana for monitoring dashboards
+#       - Node Exporter for system metrics
+#       - PostgreSQL Exporter for database metrics
+services:
+  # FastAPI Application
+  fastapi:
+    build:
+      context: ..
+      dockerfile: docker/fastapi/Dockerfile
+    container_name: citatum-app
+    ports:
+      - "${API_PORT:-8000}:8000"
+    volumes:
+      - citatum_data:/app/src/assets
+    networks:
+      - backend
+    restart: always
+    env_file:
+      - ../env/fastapi/.env
+
+networks:
+  backend:
+    driver: bridge
+
+volumes:
+  citatum_data:
