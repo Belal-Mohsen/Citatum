@@ -33,6 +33,8 @@ ENV/
 
 # Docker
 docker/
+# But allow the entrypoint script needed for the build
+!docker/fastapi/docker-entrypoint.sh
 .dockerignore
 
 # Logs

@@ -1,5 +1,4 @@
 # TODO: Add other services as needed:
-#       - PostgreSQL (pgvector) for vector database support
 #       - Redis for caching and Celery results backend
 #       - RabbitMQ for Celery message broker
 #       - Celery Worker for async task processing
@@ -12,6 +11,30 @@
 #       - Node Exporter for system metrics
 #       - PostgreSQL Exporter for database metrics
 services:
+  # PostgreSQL Database with pgvector extension
+  postgres:
+    image: pgvector/pgvector:0.8.0-pg17
+    container_name: citatum-postgres
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    ports:
+      - "${POSTGRES_PORT}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - backend
+    restart: always
+    env_file:
+      - env/.env.postgres
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 10s
+
   # FastAPI Application
   fastapi:
     build:
@@ -19,14 +42,21 @@ services:
       dockerfile: docker/fastapi/Dockerfile
     container_name: citatum-app
     ports:
-      - "${API_PORT:-8000}:8000"
+      - "${API_PORT}:8000"
     volumes:
       - citatum_data:/app/src/assets
     networks:
       - backend
     restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
     env_file:
-      - ../env/fastapi/.env
+      - env/.env
+    environment:
+      # Override DATABASE_URL to use postgres service name
+      # All variables (POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB) must be set
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
 
 networks:
   backend:
@@ -34,3 +64,4 @@ networks:
 
 volumes:
   citatum_data:
+  postgres_data:

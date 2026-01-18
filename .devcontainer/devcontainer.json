@@ -14,7 +14,7 @@
 	"initializeCommand": [
 	  "bash",
 	  "-c",
-	  "test -f env/fastapi/.env || cp env/fastapi/.env.example env/fastapi/.env"
+	  "test -f docker/env/.env || cp docker/env/.env.example docker/env/.env"
 	],
 	"features": {
 	  "ghcr.io/devcontainers/features/docker-in-docker:2": {},
