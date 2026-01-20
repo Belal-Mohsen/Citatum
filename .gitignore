@@ -143,9 +143,25 @@ ENV/
 env.bak/
 venv.bak/
 
-# Environment files (ignore actual .env files, but keep .example files)
-env/**/.env
-!env/**/.env.example
+# Environment files (ignore all .env.* files except .env.example*)
+# Ignore all .env files and .env.* variants, but keep .env.example* files
+.env
+.env.*
+!.env.example
+!.env.example.*
+
+# Docker environment files
+docker/env/**/.env
+docker/env/**/.env.*
+!docker/env/**/.env.example
+!docker/env/**/.env.example.*
+
+# Local .env files in src/ (for non-Docker development)
+src/.env
+src/.env.*
+
+# Docker Compose .env file (for variable substitution in docker-compose.yml)
+docker/.env
 
 # Spyder project settings
 .spyderproject
@@ -212,6 +228,10 @@ __marimo__/
 # Logs
 logs/
 *.log
+
+# Application data (user uploads, database files, etc.)
+src/data/
+data/
 
 plan.md
 Citatum.md
