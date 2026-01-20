@@ -5,8 +5,12 @@ from fastapi import APIRouter, Request, HTTPException, status
 from fastapi.responses import JSONResponse
 
 from src.controllers.EvidenceController import EvidenceController
-from src.models.TopicModel import TopicModel
-from src.models.db_schemas.citatum.schemas.topic import Topic
+from src.routes.dependencies import (
+    get_db_client,
+    get_vectordb_client,
+    get_embedding_client,
+    get_or_create_topic,
+)
 from src.utils.logger import get_logger
 
 router = APIRouter(
@@ -27,39 +31,6 @@ class SearchRequest(BaseModel):
     """Request model for searching evidence"""
     text: str
     limit: Optional[int] = 5
-
-
-def get_db_client(request: Request):
-    """Get database client from app state"""
-    db_client = getattr(request.app.state, "db_client", None)
-    if db_client is None:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Database client not configured"
-        )
-    return db_client
-
-
-def get_vectordb_client(request: Request):
-    """Get vector database client from app state"""
-    vectordb_client = getattr(request.app.state, "vectordb_client", None)
-    if vectordb_client is None:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Vector database client not configured"
-        )
-    return vectordb_client
-
-
-def get_embedding_client(request: Request):
-    """Get embedding client from app state"""
-    embedding_client = getattr(request.app.state, "embedding_client", None)
-    if embedding_client is None:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Embedding client not configured"
-        )
-    return embedding_client
 
 
 @router.get("/index/info/{topic_id}")
@@ -83,9 +54,7 @@ async def get_evidence_collection_info(
         vectordb_client = get_vectordb_client(request)
         embedding_client = get_embedding_client(request)
         
-        # Create TopicModel and get or create topic
-        topic_model = TopicModel(db_client)
-        topic = await topic_model.get_topic_or_create(f"topic_{topic_id}")
+        topic = await get_or_create_topic(db_client, topic_id)
         
         # Create EvidenceController instance
         evidence_controller = EvidenceController(vectordb_client, embedding_client)
@@ -136,9 +105,7 @@ async def search_evidence(
         vectordb_client = get_vectordb_client(request)
         embedding_client = get_embedding_client(request)
         
-        # Create TopicModel and get or create topic
-        topic_model = TopicModel(db_client)
-        topic = await topic_model.get_topic_or_create(f"topic_{topic_id}")
+        topic = await get_or_create_topic(db_client, topic_id)
         
         # Create EvidenceController
         evidence_controller = EvidenceController(vectordb_client, embedding_client)
@@ -209,9 +176,7 @@ async def verify_claim(
         vectordb_client = get_vectordb_client(request)
         embedding_client = get_embedding_client(request)
         
-        # Create TopicModel and get or create topic
-        topic_model = TopicModel(db_client)
-        topic = await topic_model.get_topic_or_create(f"topic_{topic_id}")
+        topic = await get_or_create_topic(db_client, topic_id)
         
         # Create EvidenceController
         evidence_controller = EvidenceController(vectordb_client, embedding_client)

@@ -6,6 +6,9 @@ from dataclasses import dataclass
 from src.controllers.BaseController import BaseController
 from src.models.db_schemas.citatum.schemas.topic import Topic
 from src.models.db_schemas.citatum.schemas.chunk import Chunk
+from src.utils.logger import get_logger
+
+logger = get_logger(__name__)
 
 
 @dataclass
@@ -112,38 +115,110 @@ class EvidenceController(BaseController):
         Returns:
             True if successful
         """
+        logger.info(
+            f"Starting embedding and indexing process for topic {topic.topic_id}: "
+            f"{len(chunks)} chunks (do_reset={do_reset})"
+        )
+        
         # Get collection name
         collection_name = self.create_collection_name(topic.topic_id)
+        logger.debug(f"Collection name: {collection_name}")
         
         # Extract texts from chunks
+        logger.debug("Extracting texts from chunks")
         texts = [c.chunk_text for c in chunks]
+        total_text_length = sum(len(text) for text in texts)
+        logger.debug(
+            f"Extracted {len(texts)} text(s), total length: {total_text_length} characters"
+        )
         
         # Extract metadata from chunks
+        logger.debug("Extracting metadata from chunks")
         metadata = [c.chunk_metadata if c.chunk_metadata else {} for c in chunks]
         
         # Generate embeddings
-        embeddings = self.embedding_client.embed_text(text=texts, document_type="document")
+        logger.info(
+            f"Generating embeddings for {len(texts)} chunks using "
+            f"{self.embedding_client.embedding_model_id} "
+            f"(embedding_size={self.embedding_client.embedding_size})"
+        )
         
-        if not embeddings or len(embeddings) == 0:
-            raise ValueError("Failed to generate embeddings for chunks")
+        try:
+            embeddings = self.embedding_client.embed_text(text=texts, document_type="document")
+            
+            if not embeddings or len(embeddings) == 0:
+                logger.error("Failed to generate embeddings: empty result")
+                raise ValueError("Failed to generate embeddings for chunks")
+
+            if len(embeddings) != len(texts):
+                logger.error(
+                    "Embedding count mismatch: "
+                    f"expected {len(texts)} embeddings, got {len(embeddings)}"
+                )
+                raise ValueError(
+                    f"Embedding client returned {len(embeddings)} embeddings for "
+                    f"{len(texts)} texts"
+                )
+            
+            logger.info(
+                f"Embeddings generated successfully: {len(embeddings)} embedding(s) created"
+            )
+        except Exception as e:
+            logger.error(
+                f"Error generating embeddings for {len(texts)} chunks: {e}",
+                exc_info=True
+            )
+            raise
         
         # Get embedding size from first embedding
         embedding_size = len(embeddings[0]) if embeddings else self.vectordb_client.default_vector_size
+        logger.debug(f"Embedding dimension: {embedding_size}")
         
         # Create collection
-        await self.vectordb_client.create_collection(
-            collection_name,
-            embedding_size,
-            do_reset
+        logger.info(
+            f"Creating/updating vector database collection: {collection_name} "
+            f"(dimension={embedding_size}, do_reset={do_reset})"
         )
+        try:
+            await self.vectordb_client.create_collection(
+                collection_name,
+                embedding_size,
+                do_reset
+            )
+            logger.info(f"Collection {collection_name} ready for indexing")
+        except Exception as e:
+            logger.error(
+                f"Error creating collection {collection_name}: {e}",
+                exc_info=True
+            )
+            raise
         
         # Insert into vector database
-        await self.vectordb_client.insert_many(
-            collection_name,
-            texts,
-            metadata,
-            embeddings,
-            record_ids=chunks_ids
+        logger.info(
+            f"Inserting {len(chunks_ids)} vectors into collection {collection_name}"
+        )
+        try:
+            await self.vectordb_client.insert_many(
+                collection_name,
+                texts,
+                metadata,
+                embeddings,
+                record_ids=chunks_ids
+            )
+            logger.info(
+                f"Successfully indexed {len(chunks_ids)} chunks into vector database "
+                f"collection {collection_name} for topic {topic.topic_id}"
+            )
+        except Exception as e:
+            logger.error(
+                f"Error inserting vectors into collection {collection_name}: {e}",
+                exc_info=True
+            )
+            raise
+        
+        logger.info(
+            f"Embedding and indexing process completed successfully for topic {topic.topic_id}: "
+            f"{len(chunks_ids)} chunks indexed"
         )
         
         return True
@@ -178,9 +253,6 @@ class EvidenceController(BaseController):
             await self.vectordb_client.delete_many(collection_name, chunk_ids)
         else:
             # If no delete method exists, log warning but don't fail
-            # Import logger here to avoid circular imports
-            from src.utils.logger import get_logger
-            logger = get_logger(__name__)
             logger.warning(f"Vector database client does not support deleting by IDs. Chunks {chunk_ids} may still exist in vector DB.")
         
         return True

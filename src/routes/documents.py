@@ -1,16 +1,21 @@
 """Document API routes"""
 import os
 import aiofiles
-from typing import Optional
+from typing import Optional, Any, Callable
 from fastapi import APIRouter, UploadFile, File, Form, Request, HTTPException, status
 from fastapi.responses import JSONResponse
 
 from src.controllers.DocumentController import DocumentController
 from src.controllers.TopicController import TopicController
+from src.controllers.ProcessController import ProcessController
 from src.controllers.EvidenceController import EvidenceController
-from src.models.TopicModel import TopicModel
+from src.routes.dependencies import (
+    get_db_client,
+    get_vectordb_client,
+    get_embedding_client,
+    get_or_create_topic,
+)
 from src.models.DocumentModel import DocumentModel
-from src.models.ChunkModel import ChunkModel
 from src.models.db_schemas.citatum.schemas.document import Document
 from src.models.db_schemas.citatum.schemas.topic import Topic
 from src.utils.config import config
@@ -24,36 +29,6 @@ router = APIRouter(
 logger = get_logger(__name__)
 
 
-def get_db_client(request: Request):
-    db_client = getattr(request.app.state, "db_client", None)
-    if db_client is None:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Database client not configured"
-        )
-    return db_client
-
-
-def get_vectordb_client(request: Request):
-    """Get vector database client from app state"""
-    vectordb_client = getattr(request.app.state, "vectordb_client", None)
-    if vectordb_client is None:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Vector database client not configured"
-        )
-    return vectordb_client
-
-
-def get_embedding_client(request: Request):
-    """Get embedding client from app state"""
-    embedding_client = getattr(request.app.state, "embedding_client", None)
-    if embedding_client is None:
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail="Embedding client not configured"
-        )
-    return embedding_client
 
 
 @router.post("/upload/{topic_id}")
@@ -87,9 +62,11 @@ async def upload_document(
         # Get db_client from app state
         db_client = get_db_client(request)
         
-        # Create TopicModel instance and get or create topic
-        topic_model = await TopicModel.create_instance(db_client)
-        topic = await topic_model.get_topic_or_create(f"topic_{topic_id}")
+        # Also get vector DB and embedding clients for later indexing
+        vectordb_client = get_vectordb_client(request)
+        embedding_client = get_embedding_client(request)
+        
+        topic = await get_or_create_topic(db_client, topic_id)
         
         # Validate file using DocumentController
         doc_controller = DocumentController()
@@ -159,7 +136,40 @@ async def upload_document(
         # Save document to database
         created_document = await document_model.create_document(document)
         
-        logger.info(f"Document uploaded successfully: {file_id} for topic {topic_id}")
+        # Step 2: Chunk the document and store chunks in DB
+        process_controller = ProcessController(topic.topic_id)
+        all_chunks, chunk_ids = await process_controller.chunk_and_store_document(
+            file_path=file_path,
+            topic=topic,
+            document_db_id=created_document.document_id,
+            db_client=db_client,
+        )
+        
+        # Step 3: Generate embeddings and index into vector DB
+        if all_chunks and chunk_ids:
+            try:
+                evidence_controller = EvidenceController(
+                    vectordb_client=vectordb_client,
+                    embedding_client=embedding_client,
+                )
+                await evidence_controller.index_into_vector_db(
+                    topic=topic,
+                    chunks=all_chunks,
+                    chunks_ids=chunk_ids,
+                    do_reset=False,
+                )
+                logger.info(
+                    f"Indexed {len(chunk_ids)} chunks into vector DB for "
+                    f"document {created_document.document_id} (topic_id={topic.topic_id})"
+                )
+            except Exception as e:
+                logger.error(
+                    f"Failed to index chunks into vector DB for document {created_document.document_id}: {e}",
+                    exc_info=True
+                )
+                # Don't fail the upload if indexing fails - document is already saved
+        
+        logger.info(f"Document uploaded and processed successfully: {file_id} for topic {topic_id}")
         
         return JSONResponse(
             status_code=status.HTTP_201_CREATED,

@@ -64,6 +64,17 @@ class PGVectorProvider(VectorDBInterface):
             if not database_url:
                 raise ValueError("Database URL not configured")
             
+            # Normalize URL for asyncpg (strip SQLAlchemy driver suffix)
+            # asyncpg expects postgresql:// or postgres://, not postgresql+asyncpg://
+            if database_url.startswith('postgresql+asyncpg://'):
+                database_url = database_url.replace('postgresql+asyncpg://', 'postgresql://', 1)
+            elif database_url.startswith('postgresql+psycopg2://'):
+                database_url = database_url.replace('postgresql+psycopg2://', 'postgresql://', 1)
+            elif database_url.startswith('postgres+asyncpg://'):
+                database_url = database_url.replace('postgres+asyncpg://', 'postgres://', 1)
+            elif database_url.startswith('postgres+psycopg2://'):
+                database_url = database_url.replace('postgres+psycopg2://', 'postgres://', 1)
+            
             self.connection_pool = await asyncpg.create_pool(
                 database_url,
                 min_size=1,
@@ -237,6 +248,26 @@ class PGVectorProvider(VectorDBInterface):
         
         try:
             async with pool.acquire() as conn:
+                # Check if table exists first
+                table_exists = await conn.fetchval("""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables 
+                        WHERE table_schema = 'public' 
+                        AND table_name = $1
+                    )
+                """, collection_name)
+                
+                if not table_exists:
+                    # Collection doesn't exist, return empty collection info
+                    logger.info(f"Collection {collection_name} does not exist")
+                    return {
+                        "collection_name": collection_name,
+                        "row_count": 0,
+                        "vector_dimension": None,
+                        "provider": "pgvector",
+                        "exists": False
+                    }
+                
                 # Get row count
                 count_result = await conn.fetchval(
                     f"SELECT COUNT(*) FROM {collection_name}"
@@ -256,7 +287,8 @@ class PGVectorProvider(VectorDBInterface):
                     "collection_name": collection_name,
                     "row_count": count_result,
                     "vector_dimension": vector_dimension,
-                    "provider": "pgvector"
+                    "provider": "pgvector",
+                    "exists": True
                 }
                 
                 return info
@@ -288,6 +320,17 @@ class PGVectorProvider(VectorDBInterface):
         """
         if record_ids is None or len(record_ids) != len(texts):
             raise ValueError("record_ids (chunk_ids) must be provided and match texts length")
+
+        # Ensure all input lists are aligned to avoid silent truncation by zip()
+        expected_len = len(texts)
+        if len(metadata) != expected_len:
+            raise ValueError(
+                f"Metadata length ({len(metadata)}) does not match texts length ({expected_len})"
+            )
+        if len(vectors) != expected_len:
+            raise ValueError(
+                f"Vectors length ({len(vectors)}) does not match texts length ({expected_len})"
+            )
         
         pool = await self._get_pool()
         
@@ -301,14 +344,19 @@ class PGVectorProvider(VectorDBInterface):
                         meta = {}
                     meta['chunk_id'] = chunk_id
                     
+                    # Convert vector list to string format for pgvector
+                    # Format: '[0.1,0.2,0.3]' (no spaces, comma-separated)
+                    vector_str = '[' + ','.join(str(float(v)) for v in vector) + ']'
+                    
                     values.append((
                         chunk_id,
                         text,
                         json.dumps(meta),
-                        vector
+                        vector_str
                     ))
                 
                 # Batch insert using executemany
+                # Note: We pass vector as string and cast to vector type in SQL
                 await conn.executemany(
                     f"""
                     INSERT INTO {collection_name} (chunk_id, text, metadata, embedding)
