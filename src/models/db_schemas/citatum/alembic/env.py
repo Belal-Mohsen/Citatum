@@ -26,6 +26,10 @@ if config.get_main_option("sqlalchemy.url") == "driver://user:pass@localhost/dbn
     # Use get_database_url() which validates the URL is set
     try:
         database_url = app_config.get_database_url()
+        # Alembic requires a synchronous driver, convert asyncpg to psycopg2
+        # Replace postgresql+asyncpg:// with postgresql+psycopg2:// for migrations
+        if database_url.startswith("postgresql+asyncpg://"):
+            database_url = database_url.replace("postgresql+asyncpg://", "postgresql+psycopg2://")
         config.set_main_option("sqlalchemy.url", database_url)
     except ValueError as e:
         raise ValueError(

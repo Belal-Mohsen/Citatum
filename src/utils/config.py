@@ -22,10 +22,64 @@ class Config(BaseSettings):
     anthropic_api_key: str = ""
     
     # Vector Database Configuration
-    vector_db_type: Literal["chroma", "pinecone", "weaviate", "qdrant"] = "chroma"
+    vector_db_type: Literal["pgvector","chroma", "pinecone", "weaviate", "qdrant"] = "pgvector"
     vector_db_path: str = "./data/vector_db"
     vector_db_host: str = "localhost"
     vector_db_port: int = 8000
+    
+    # Vector Database Distance Method (applies to all providers)
+    # Options: "cosine" (default), "l2" (Euclidean), "inner_product" (dot product)
+    vector_db_distance_method: Literal["cosine", "l2", "inner_product"] = Field(
+        default="cosine",
+        description="Distance method for vector similarity search. "
+                    "Set via VECTOR_DB_DISTANCE_METHOD environment variable. "
+                    "Options: cosine, l2, inner_product. Applies to all vector DB providers."
+    )
+    
+    # PGVector-specific Index Configuration
+    # Index type: "hnsw" (default, fast queries) or "ivfflat" (faster build, requires threshold)
+    pgvector_index_type: Literal["hnsw", "ivfflat"] = Field(
+        default="hnsw",
+        description="Index type for PGVector. Set via PGVECTOR_INDEX_TYPE environment variable. "
+                    "Options: hnsw (default, fast queries), ivfflat (faster build, requires threshold)"
+    )
+    
+    # PGVector IVFFlat Index Threshold
+    # Minimum number of rows before creating IVFFlat index (typically 100+)
+    pgvector_index_threshold: int = Field(
+        default=100,
+        description="Minimum rows required before creating IVFFlat index. "
+                    "Set via PGVECTOR_INDEX_THRESHOLD environment variable. "
+                    "Only applies when pgvector_index_type is 'ivfflat'. "
+                    "IVFFlat indexes are only useful with sufficient data (typically 100+ rows)."
+    )
+    
+    # Vector Database Distance Method
+    # Options: "cosine" (default), "l2" (Euclidean), "inner_product" (dot product)
+    # Applies to all vector DB providers (PGVector, Qdrant, etc.)
+    vector_db_distance_method: Literal["cosine", "l2", "inner_product"] = Field(
+        default="cosine",
+        description="Distance method for vector similarity search. "
+                    "Set via VECTOR_DB_DISTANCE_METHOD environment variable. "
+                    "Options: cosine, l2, inner_product"
+    )
+    
+    # PGVector-specific Index Configuration
+    # Index type: "hnsw" (default, fast queries) or "ivfflat" (faster build, requires threshold)
+    pgvector_index_type: Literal["hnsw", "ivfflat"] = Field(
+        default="hnsw",
+        description="Index type for PGVector. Set via PGVECTOR_INDEX_TYPE environment variable. "
+                    "Options: hnsw (default), ivfflat"
+    )
+    
+    # PGVector IVFFlat Index Threshold
+    # Minimum number of rows before creating IVFFlat index (typically 100+)
+    pgvector_index_threshold: int = Field(
+        default=100,
+        description="Minimum rows required before creating IVFFlat index. "
+                    "Set via PGVECTOR_INDEX_THRESHOLD environment variable. "
+                    "Only applies when pgvector_index_type is 'ivfflat'"
+    )
     
     # Embedding Model Configuration
     embedding_model: str = "text-embedding-3-small"
@@ -66,6 +120,33 @@ class Config(BaseSettings):
                 "Example: DATABASE_URL=postgresql://user:password@localhost:5432/citatum"
             )
         return self.database_url
+    
+    # File Upload Configuration
+    file_allowed_types: str = Field(
+        default="application/pdf,text/plain",
+        description="Comma-separated list of allowed MIME types for file uploads. "
+                    "Set via FILE_ALLOWED_TYPES environment variable."
+    )
+    
+    file_max_size_mb: int = Field(
+        default=50,
+        description="Maximum file size in megabytes for uploads. "
+                    "Set via FILE_MAX_SIZE_MB environment variable."
+    )
+    
+    def get_file_allowed_types(self) -> list[str]:
+        """
+        Get list of allowed file types from configuration.
+        
+        Returns:
+            List of allowed MIME types
+        """
+        if not self.file_allowed_types:
+            return ["application/pdf", "text/plain"]  # Default fallback
+        
+        # Split by comma and strip whitespace
+        types = [t.strip() for t in self.file_allowed_types.split(",") if t.strip()]
+        return types if types else ["application/pdf", "text/plain"]  # Default fallback
     
     # Logging
     log_level: str = "INFO"

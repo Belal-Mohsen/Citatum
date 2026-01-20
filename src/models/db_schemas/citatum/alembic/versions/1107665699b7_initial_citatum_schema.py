@@ -21,6 +21,8 @@ depends_on: Union[str, Sequence[str], None] = None
 def upgrade() -> None:
     # Enable UUID extension
     op.execute('CREATE EXTENSION IF NOT EXISTS "uuid-ossp"')
+    # Enable pgvector extension for vector similarity search
+    op.execute('CREATE EXTENSION IF NOT EXISTS "vector"')
     
     # Create topics table
     op.create_table(

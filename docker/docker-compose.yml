@@ -44,7 +44,7 @@ services:
     ports:
       - "${API_PORT}:8000"
     volumes:
-      - citatum_data:/app/src/assets
+      - citatum_data:/app/src/data
     networks:
       - backend
     restart: always

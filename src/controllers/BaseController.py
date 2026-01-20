@@ -50,20 +50,20 @@ class BaseController:
     @property
     def files_dir(self) -> str:
         """
-        Get base file storage directory at {base_dir}/assets/topics.
+        Get base file storage directory at {base_dir}/data/topics.
         
         Returns:
             Absolute path to topics directory (created if doesn't exist)
         """
         if self._files_dir is None:
-            files_path = os.path.join(self.base_dir, "assets", "topics")
+            files_path = os.path.join(self.base_dir, "data", "topics")
             os.makedirs(files_path, exist_ok=True)
             self._files_dir = os.path.abspath(files_path)
         return self._files_dir
     
     def get_topic_files_dir(self, topic_name: str) -> str:
         """
-        Get file storage directory for a specific topic at {base_dir}/assets/topics/{topic_name}/files.
+        Get file storage directory for a specific topic at {base_dir}/data/topics/{topic_name}/files.
         
         Args:
             topic_name: Name of the topic (used as directory name)
@@ -78,13 +78,13 @@ class BaseController:
     @property
     def database_dir(self) -> str:
         """
-        Get database storage directory at {base_dir}/assets/database.
+        Get database storage directory at {base_dir}/data/database.
         
         Returns:
             Absolute path to database directory (created if doesn't exist)
         """
         if self._database_dir is None:
-            db_path = os.path.join(self.base_dir, "assets", "database")
+            db_path = os.path.join(self.base_dir, "data", "database")
             os.makedirs(db_path, exist_ok=True)
             self._database_dir = os.path.abspath(db_path)
         return self._database_dir
