@@ -150,6 +150,18 @@ class Config(BaseSettings):
     
     # Logging
     log_level: str = "INFO"
+    
+    # Celery Configuration
+    celery_broker_url: str = Field(
+        default="amqp://guest:guest@localhost:5672//",
+        description="Celery broker URL (RabbitMQ or Redis). Set via CELERY_BROKER_URL environment variable. "
+                    "Examples: amqp://guest:guest@rabbitmq:5672// (RabbitMQ) or redis://localhost:6379/0 (Redis)"
+    )
+    celery_result_backend: str = Field(
+        default="redis://localhost:6379/0",
+        description="Celery result backend URL (Redis). Set via CELERY_RESULT_BACKEND environment variable. "
+                    "Example: redis://localhost:6379/0"
+    )
 
 
 # Create a global config instance

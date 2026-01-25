@@ -186,9 +186,12 @@ class PGVectorProvider(VectorDBInterface):
                         # Create IVFFlat index (requires lists parameter, using default)
                         # IVFFlat needs number of lists (typically sqrt of row count)
                         num_lists = max(10, int((row_count / 1000) ** 0.5))
+                        # Quote index name and use quoted table name for consistency
+                        index_name = f"{collection_name}_embedding_idx"
+                        quoted_index_name = self._quote_identifier(index_name)
                         index_sql = f"""
-                            CREATE INDEX IF NOT EXISTS {collection_name}_embedding_idx 
-                            ON {collection_name} 
+                            CREATE INDEX IF NOT EXISTS {quoted_index_name} 
+                            ON {quoted_name} 
                             USING ivfflat (embedding {self.index_ops}) 
                             WITH (lists = {num_lists});
                         """
@@ -198,18 +201,24 @@ class PGVectorProvider(VectorDBInterface):
                         )
                 else:
                     # Create HNSW index (default)
+                    # Quote index name and use quoted table name for consistency
+                    index_name = f"{collection_name}_embedding_idx"
+                    quoted_index_name = self._quote_identifier(index_name)
                     index_sql = f"""
-                        CREATE INDEX IF NOT EXISTS {collection_name}_embedding_idx 
-                        ON {collection_name} 
+                        CREATE INDEX IF NOT EXISTS {quoted_index_name} 
+                        ON {quoted_name} 
                         USING hnsw (embedding {self.index_ops});
                     """
                     await conn.execute(index_sql)
                     logger.debug(f"Created HNSW index for {collection_name} with {self.distance_method} distance")
                 
                 # Create index on chunk_id for faster lookups
+                # Quote index name and use quoted table name for consistency
+                chunk_id_index_name = f"{collection_name}_chunk_id_idx"
+                quoted_chunk_id_index_name = self._quote_identifier(chunk_id_index_name)
                 chunk_id_index_sql = f"""
-                    CREATE INDEX IF NOT EXISTS {collection_name}_chunk_id_idx 
-                    ON {collection_name} (chunk_id);
+                    CREATE INDEX IF NOT EXISTS {quoted_chunk_id_index_name} 
+                    ON {quoted_name} (chunk_id);
                 """
                 
                 await conn.execute(chunk_id_index_sql)
@@ -382,6 +391,10 @@ class PGVectorProvider(VectorDBInterface):
         
         try:
             async with pool.acquire() as conn:
+                # Quote collection name to handle special characters and preserve case
+                # This must match how the table was created in create_collection()
+                quoted_name = self._quote_identifier(collection_name)
+                
                 # Prepare data for batch insert
                 values = []
                 for i, (text, meta, vector, chunk_id) in enumerate(zip(texts, metadata, vectors, record_ids)):
@@ -403,9 +416,10 @@ class PGVectorProvider(VectorDBInterface):
                 
                 # Batch insert using executemany
                 # Note: We pass vector as string and cast to vector type in SQL
+                # Use quoted_name to match the table created in create_collection()
                 await conn.executemany(
                     f"""
-                    INSERT INTO {collection_name} (chunk_id, text, metadata, embedding)
+                    INSERT INTO {quoted_name} (chunk_id, text, metadata, embedding)
                     VALUES ($1, $2, $3::jsonb, $4::vector)
                     """,
                     values

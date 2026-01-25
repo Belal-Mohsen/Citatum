@@ -1,29 +1,21 @@
 """Document API routes"""
-import os
-import time
-import aiofiles
-from typing import Optional, Any, Callable
+import base64
+from typing import Optional
 from fastapi import APIRouter, UploadFile, File, Form, Request, HTTPException, status
 from fastapi.responses import JSONResponse
 
 from src.controllers.DocumentController import DocumentController
-from src.controllers.TopicController import TopicController
-from src.controllers.ProcessController import ProcessController
-from src.controllers.EvidenceController import EvidenceController
 from src.routes.dependencies import (
     get_db_client,
     get_vectordb_client,
     get_embedding_client,
-    get_or_create_topic,
 )
 from src.models.DocumentModel import DocumentModel
 from src.models.TopicModel import TopicModel
-from src.models.db_schemas.citatum.schemas.document import Document
-from src.models.db_schemas.citatum.schemas.topic import Topic
 from src.utils.config import config
 from src.utils.logger import get_logger
 from src.utils.uuid_validator import validate_uuid
-
+from src.tasks.document_tasks import document_upload_and_process
 router = APIRouter(
     prefix="/api/v1/documents",
     tags=["api_v1", "documents"],
@@ -37,7 +29,6 @@ logger = get_logger(__name__)
 @router.post("/upload/{topic_name}")
 async def upload_document(
     topic_name: str,
-    request: Request,
     file: UploadFile = File(...),
     title: Optional[str] = Form(None),
     author: Optional[str] = Form(None),
@@ -48,13 +39,9 @@ async def upload_document(
     """
     Upload a document for a topic.
     
-    This endpoint handles the complete document upload workflow:
-    1. File validation
-    2. File saving to disk
-    3. Document metadata extraction
-    4. Document record creation in database
-    5. Document chunking
-    6. Embedding generation and vector DB indexing
+    This endpoint accepts a file upload and queues it for processing via Celery.
+    The actual processing (validation, chunking, embedding, indexing) happens
+    asynchronously in a background task.
     
     Args:
         topic_name: Topic name (used as identifier)
@@ -64,275 +51,99 @@ async def upload_document(
         doi: Optional Digital Object Identifier
         journal: Optional journal/conference name
         publication_date: Optional publication date
-        request: FastAPI request object
     
     Returns:
-        JSON response with upload status and document_id
+        JSON response with upload status, filename, and task_id.
+        Note: Use task_id to poll for task completion and retrieve the actual
+        document_db_id (UUID) needed for GET /documents/{document_id} requests.
     """
-    start_time = time.time()
-    file_id = None
-    document_db_id = None
+    filename = file.filename or "unknown"
+    content_type = file.content_type or "application/octet-stream"
     
     try:
-        # Log request start with context
-        filename = file.filename or "unknown"
-        content_type = file.content_type or "unknown"
-        logger.info(
-            f"Document upload request received | "
-            f"topic_name={topic_name} | filename={filename} | "
-            f"content_type={content_type} | client_ip={request.client.host if request.client else 'unknown'}"
-        )
+        # Validate file size before reading into memory
+        # This prevents memory issues with very large files
+        max_size_mb = config.file_max_size_mb
+        max_size_bytes = max_size_mb * 1048576  # MB to bytes
         
-        # Step 1: Initialize clients
-        logger.debug(f"Initializing database and vector DB clients for topic_name={topic_name}")
-        db_client = get_db_client(request)
-        vectordb_client = get_vectordb_client(request)
-        embedding_client = get_embedding_client(request)
-        logger.debug("All clients initialized successfully")
-        
-        # Step 2: Get or create topic
-        topic_start = time.time()
-        logger.info(f"Getting or creating topic | topic_name={topic_name}")
-        topic = await get_or_create_topic(db_client, topic_name)
-        topic_time = time.time() - topic_start
-        logger.info(
-            f"Topic ready | topic_id={topic.topic_id} | topic_name={topic.topic_name} | "
-            f"duration={topic_time:.3f}s"
-        )
-
-        # Step 3: Validate file
-        validation_start = time.time()
-        logger.info(f"Validating uploaded file | filename={filename} | topic_name={topic_name}")
-        doc_controller = DocumentController()
-        is_valid, message = doc_controller.validate_uploaded_file(file)
-        validation_time = time.time() - validation_start
-        
-        if not is_valid:
-            logger.warning(
-                f"File validation failed | filename={filename} | topic_name={topic_name} | "
-                f"reason={message} | duration={validation_time:.3f}s"
-            )
+        if file.size is not None and file.size > max_size_bytes:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
-                detail=message
+                detail=f"file_size_exceeded: {file.size} bytes. Maximum size: {max_size_mb} MB ({max_size_bytes} bytes)"
             )
         
-        logger.info(
-            f"File validation passed | filename={filename} | size={file.size or 'unknown'} bytes | "
-            f"content_type={content_type} | duration={validation_time:.3f}s"
-        )
+        # Validate file type before processing
+        allowed_types = config.get_file_allowed_types()
+        if content_type not in allowed_types:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"file_type_not_allowed: {content_type}. Allowed types: {', '.join(allowed_types)}"
+            )
         
-        # Step 4: Extract metadata
-        metadata_start = time.time()
-        logger.debug(f"Extracting document metadata | filename={filename}")
-        form_data = {}
-        if title:
-            form_data["title"] = title
-        if author:
-            form_data["author"] = author
-        if doi:
-            form_data["doi"] = doi
-        if journal:
-            form_data["journal"] = journal
-        if publication_date:
-            form_data["publication_date"] = publication_date
+        # Read file content into memory (required for Celery serialization)
+        # Note: For very large files, consider streaming to disk instead
+        file_content = await file.read()
         
-        metadata = doc_controller.extract_document_metadata(file, form_data)
-        metadata_time = time.time() - metadata_start
-        logger.info(
-            f"Metadata extracted | filename={filename} | metadata_keys={list(metadata.keys())} | "
-            f"duration={metadata_time:.3f}s"
-        )
-        
-        # Step 5: Generate unique filepath
-        filepath_start = time.time()
-        logger.debug(f"Generating unique filepath | filename={filename} | topic_name={topic_name}")
-        file_path, file_id = doc_controller.generate_unique_filepath(
-            file.filename,
-            topic_name
-        )
-        filepath_time = time.time() - filepath_start
-        logger.info(
-            f"Filepath generated | file_id={file_id} | file_path={file_path} | "
-            f"duration={filepath_time:.3f}s"
-        )
-        
-        # Step 6: Save file to disk
-        save_start = time.time()
-        logger.info(f"Saving file to disk | file_id={file_id} | file_path={file_path}")
-        chunk_size = getattr(config, "file_default_chunk_size", 8192)
-        bytes_written = 0
-        chunks_written = 0
-        
-        async with aiofiles.open(file_path, "wb") as f:
-            while chunk := await file.read(chunk_size):
-                await f.write(chunk)
-                bytes_written += len(chunk)
-                chunks_written += 1
-                # Log progress for large files (every 100 chunks)
-                if chunks_written % 100 == 0:
-                    logger.debug(
-                        f"File save progress | file_id={file_id} | "
-                        f"chunks={chunks_written} | bytes={bytes_written}"
-                    )
-        
-        file_size = os.path.getsize(file_path)
-        save_time = time.time() - save_start
-        logger.info(
-            f"File saved successfully | file_id={file_id} | file_size={file_size} bytes | "
-            f"chunks_written={chunks_written} | duration={save_time:.3f}s | "
-            f"throughput={file_size/save_time:.0f} bytes/s"
-        )
-        
-        # Step 7: Determine document type
-        content_type = file.content_type or ""
-        if "pdf" in content_type.lower():
-            document_type = "PDF"
-        elif "text" in content_type.lower():
-            document_type = "TXT"
-        else:
-            document_type = "PDF"  # Default
-        logger.debug(f"Document type determined | file_id={file_id} | type={document_type}")
-        
-        # Step 8: Create document record in database
-        db_create_start = time.time()
-        logger.info(f"Creating document record in database | file_id={file_id} | topic_name={topic_name}")
-        document_model = DocumentModel(db_client)
-        
-        document = Document(
-            document_type=document_type,
-            document_name=file_id,
-            document_size=file_size,
-            document_title=metadata.get("title"),
-            document_author=metadata.get("author"),
-            document_doi=metadata.get("doi"),
-            document_journal=metadata.get("journal"),
-            document_topic_id=topic.topic_id,
-            document_metadata=metadata if metadata else None,
-        )
-        
-        created_document = await document_model.create_document(document)
-        document_db_id = created_document.document_id
-        db_create_time = time.time() - db_create_start
-        logger.info(
-            f"Document record created | document_db_id={document_db_id} | file_id={file_id} | "
-            f"duration={db_create_time:.3f}s"
-        )
-        
-        # Step 9: Chunk the document and store chunks in DB
-        chunking_start = time.time()
-        logger.info(
-            f"Starting document chunking | document_db_id={document_db_id} | "
-            f"file_id={file_id} | topic_name={topic_name} | file_size={file_size} bytes"
-        )
-        process_controller = ProcessController(topic_name)  # Use topic_name instead of topic_id
-        all_chunks, chunk_ids = await process_controller.chunk_and_store_document(
-            file_path=file_path,
-            topic=topic,
-            document_db_id=created_document.document_id,
-            db_client=db_client,
-        )
-        chunking_time = time.time() - chunking_start
-        chunks_count = len(chunk_ids) if chunk_ids else 0
-        
-        if chunks_count == 0:
+        # Verify actual file size matches reported size (if available)
+        actual_size = len(file_content)
+        if file.size is not None and actual_size != file.size:
             logger.warning(
-                f"No chunks generated | document_db_id={document_db_id} | file_id={file_id} | "
-                f"topic_name={topic_name} | duration={chunking_time:.3f}s"
-            )
-        else:
-            logger.info(
-                f"Document chunking completed | document_db_id={document_db_id} | "
-                f"chunks_count={chunks_count} | duration={chunking_time:.3f}s | "
-                f"avg_chunk_time={chunking_time/chunks_count:.3f}s/chunk"
+                f"File size mismatch | filename={filename} | "
+                f"reported={file.size} | actual={actual_size}"
             )
         
-        # Step 10: Generate embeddings and index into vector DB
-        indexing_start = time.time()
-        if all_chunks and chunk_ids:
-            logger.info(
-                f"Starting vector DB indexing | document_db_id={document_db_id} | "
-                f"chunks_count={chunks_count} | topic_name={topic_name}"
-            )
-            try:
-                evidence_controller = EvidenceController(
-                    vectordb_client=vectordb_client,
-                    embedding_client=embedding_client,
-                )
-                await evidence_controller.index_into_vector_db(
-                    topic=topic,
-                    chunks=all_chunks,
-                    chunks_ids=chunk_ids,
-                    do_reset=False,
-                )
-                indexing_time = time.time() - indexing_start
-                logger.info(
-                    f"Vector DB indexing completed | document_db_id={document_db_id} | "
-                    f"chunks_indexed={chunks_count} | topic_name={topic_name} | "
-                    f"duration={indexing_time:.3f}s | "
-                    f"avg_indexing_time={indexing_time/chunks_count:.3f}s/chunk"
-                )
-            except Exception as e:
-                indexing_time = time.time() - indexing_start
-                logger.error(
-                    f"Vector DB indexing failed | document_db_id={document_db_id} | "
-                    f"chunks_count={chunks_count} | topic_name={topic_name} | "
-                    f"duration={indexing_time:.3f}s | error={str(e)}",
-                    exc_info=True
-                )
-                # Don't fail the upload if indexing fails - document is already saved
-        else:
-            logger.warning(
-                f"Skipping vector DB indexing | document_db_id={document_db_id} | "
-                f"reason=no_chunks_generated | chunks_count={chunks_count}"
+        # Double-check size after reading (in case file.size was None)
+        if actual_size > max_size_bytes:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail=f"file_size_exceeded: {actual_size} bytes. Maximum size: {max_size_mb} MB ({max_size_bytes} bytes)"
             )
         
-        # Calculate total processing time
-        total_time = time.time() - start_time
+        # Encode file content as base64 for JSON serialization
+        # Celery uses JSON serializer which cannot handle raw bytes
+        file_content_b64 = base64.b64encode(file_content).decode('utf-8')
         
-        # Log success summary with metrics
-        logger.info(
-            f"Document upload completed successfully | "
-            f"file_id={file_id} | document_db_id={document_db_id} | topic_name={topic_name} | "
-            f"file_size={file_size} bytes | chunks_count={chunks_count} | "
-            f"total_duration={total_time:.3f}s | "
-            f"breakdown: topic={topic_time:.3f}s, validation={validation_time:.3f}s, "
-            f"metadata={metadata_time:.3f}s, filepath={filepath_time:.3f}s, "
-            f"save={save_time:.3f}s, db_create={db_create_time:.3f}s, "
-            f"chunking={chunking_time:.3f}s, indexing={indexing_time if all_chunks else 0:.3f}s"
+        # Queue the task with serializable parameters
+        task = document_upload_and_process.delay(
+            topic_name=topic_name,
+            file_content_b64=file_content_b64,
+            filename=filename,
+            content_type=content_type,
+            title=title,
+            author=author,
+            doi=doi,
+            journal=journal,
+            publication_date=publication_date,
         )
-        
+
         return JSONResponse(
-            status_code=status.HTTP_201_CREATED,
+            status_code=status.HTTP_202_ACCEPTED,
             content={
-                "message": "file_upload_success",
-                "document_id": file_id,
-                "document_db_id": created_document.document_id,
-                "chunks_count": chunks_count,
-                "processing_time_seconds": round(total_time, 3),
+                "message": "file_upload_accepted",
+                "filename": filename,
+                "task_id": task.id,
+                "note": "Use task_id to check task status and retrieve document_db_id (UUID) for document retrieval"
             }
         )
-    
-    except HTTPException as e:
-        total_time = time.time() - start_time
-        logger.warning(
-            f"Document upload rejected | topic_name={topic_name} | "
-            f"status_code={e.status_code} | detail={e.detail} | "
-            f"duration={total_time:.3f}s"
-        )
+    except HTTPException:
+        # Re-raise HTTP exceptions (validation errors)
         raise
-    except Exception as e:
-        total_time = time.time() - start_time
-        logger.error(
-            f"Document upload failed | topic_name={topic_name} | file_id={file_id or 'unknown'} | "
-            f"document_db_id={document_db_id or 'unknown'} | duration={total_time:.3f}s | "
-            f"error={str(e)}",
-            exc_info=True
+    except OSError as e:
+        # File read errors
+        logger.error(f"Error reading file {filename}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to read file: {str(e)}"
         )
+    except Exception as e:
+        # Celery queue errors or other unexpected errors
+        logger.error(f"Error queuing document upload task: {e}", exc_info=True)
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail=f"Failed to upload document: {str(e)}"
+            detail=f"Failed to queue document upload: {str(e)}"
         )
+
+
 
 
 @router.get("/{document_id}")

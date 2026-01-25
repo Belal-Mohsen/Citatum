@@ -20,4 +20,8 @@ dependencies = [
     "qdrant-client>=1.16.2",
     "sqlalchemy>=2.0.45",
     "uvicorn[standard]>=0.40.0",
+    "celery>=5.4.0",
+    "redis>=5.2.0",
+    "flower>=2.0.0",
+    "kombu>=5.4.0",
 ]

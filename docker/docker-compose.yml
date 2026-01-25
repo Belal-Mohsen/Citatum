@@ -1,9 +1,4 @@
 # TODO: Add other services as needed:
-#       - Redis for caching and Celery results backend
-#       - RabbitMQ for Celery message broker
-#       - Celery Worker for async task processing
-#       - Celery Beat for scheduled tasks
-#       - Flower for Celery monitoring
 #       - Qdrant or other vector database service
 #       - Nginx reverse proxy
 #       - Prometheus for metrics collection
@@ -27,7 +22,7 @@ services:
       - backend
     restart: always
     env_file:
-      - env/.env.postgres
+      - ./env/.env.postgres
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
       interval: 10s
@@ -52,11 +47,166 @@ services:
       postgres:
         condition: service_healthy
     env_file:
-      - env/.env
+      - ./env/.env
+      - ./env/.env.redis
     environment:
       # Override DATABASE_URL to use postgres service name
       # All variables (POSTGRES_USER, POSTGRES_PASSWORD, POSTGRES_DB) must be set
       DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      # Override Celery broker URL to use Docker service name with credentials from env
+      CELERY_BROKER_URL: amqp://${RABBITMQ_DEFAULT_USER:-guest}:${RABBITMQ_DEFAULT_PASS:-guest}@rabbitmq:5672//
+      # Override Celery result backend to use Docker service name with password
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:-guest}@redis:6379/0
+
+  # Celery Worker
+  celery-worker:
+    build:
+      context: ..
+      dockerfile: docker/fastapi/Dockerfile
+    container_name: celery-worker
+    volumes:
+      - citatum_data:/app/src/data
+    networks:
+      - backend
+    restart: always
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - ./env/.env
+      - ./env/.env.redis
+      # - env/.env.rabbitmq
+    environment:
+      # Override DATABASE_URL to use postgres service name
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      # Celery/Flower containers shouldn't run Alembic migrations
+      SKIP_MIGRATIONS: "1"
+      # Override Celery broker URL to use Docker service name with credentials from env
+      CELERY_BROKER_URL: amqp://${RABBITMQ_DEFAULT_USER:-guest}:${RABBITMQ_DEFAULT_PASS:-guest}@rabbitmq:5672//
+      # Override Celery result backend to use Docker service name with password
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:-guest}@redis:6379/0
+    command: ["uv", "run", "celery", "-A", "src.core.celery_app", "worker", "--queues=default", "--loglevel=info"]
+
+  # Celery Beat Scheduler
+  celery-beat:
+    build:
+      context: ..
+      dockerfile: docker/fastapi/Dockerfile
+    container_name: celery-beat
+    volumes:
+      - citatum_data:/app/src/data
+      - celery_beat_data:/app/celerybeat
+    networks:
+      - backend
+    restart: always
+    depends_on:
+      # postgres:
+      #   condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    env_file:
+      - ./env/.env
+      - ./env/.env.redis
+      # - env/.env.rabbitmq
+    environment:
+      # Override DATABASE_URL to use postgres service name
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      # Celery Beat doesn't need database access at startup - skip DB check and migrations
+      SKIP_DB_CHECK: "1"
+      SKIP_MIGRATIONS: "1"
+      # Override Celery broker URL to use Docker service name with credentials from env
+      CELERY_BROKER_URL: amqp://${RABBITMQ_DEFAULT_USER:-guest}:${RABBITMQ_DEFAULT_PASS:-guest}@rabbitmq:5672//
+      # Override Celery result backend to use Docker service name with password
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:-guest}@redis:6379/0
+    command: ["uv", "run", "celery", "-A", "src.core.celery_app", "beat", "--loglevel=info"]
+
+  # Flower Dashboard
+  flower:
+    build:
+      context: ..
+      dockerfile: docker/fastapi/Dockerfile
+    container_name: flower
+    ports:
+      - "5555:5555"
+    networks:
+      - backend
+    restart: always
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      celery-worker:
+        condition: service_started
+    env_file:
+      - ./env/.env
+      - ./env/.env.redis
+      #- env/.env.rabbitmq
+    environment:
+      # Override DATABASE_URL to use postgres service name
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
+      # Flower doesn't need database access - skip DB check and migrations
+      SKIP_DB_CHECK: "1"
+      SKIP_MIGRATIONS: "1"
+      # Override Celery broker URL to use Docker service name with credentials from env
+      CELERY_BROKER_URL: amqp://${RABBITMQ_DEFAULT_USER:-guest}:${RABBITMQ_DEFAULT_PASS:-guest}@rabbitmq:5672//
+      # Override Celery result backend to use Docker service name with password
+      CELERY_RESULT_BACKEND: redis://:${REDIS_PASSWORD:-guest}@redis:6379/0
+    # Flower expects a *file path* for --conf (it will try to open it),
+    # so point it at the config file inside the image.
+    command: ["uv", "run", "celery", "-A", "src.core.celery_app", "flower", "--conf=/app/src/core/flowerconfig.py"]
+
+
+  # RabbitMQ (Message Broker)
+  rabbitmq:
+    image: rabbitmq:4.1.2-management-alpine
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"   # AMQP port
+      - "15672:15672" # Management UI port
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+      - ./rabbitmq/rabbitmq.conf:/etc/rabbitmq/rabbitmq.conf
+    env_file:
+      - ./env/.env.rabbitmq
+    networks:
+      - backend
+    restart: always
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  # Redis (Results Backend & Cache)
+  redis:
+    image: redis:8.0.3-alpine
+    container_name: redis
+    ports:
+      - "6380:6379"  # Host port 6380 maps to container port 6379 (to avoid conflict with host Redis)
+    volumes:
+      - redis_data:/data
+    env_file:
+      - ./env/.env.redis
+    # environment:
+    #   REDIS_PASSWORD: ${REDIS_PASSWORD:-redis_2222}
+    networks:
+      - backend
+    restart: always
+    healthcheck:
+      test: ["CMD", "redis-cli", "--no-auth-warning", "-a", "${REDIS_PASSWORD:-guest}", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 5
+      start_period: 10s
+    command: ["sh", "-c", "redis-server --appendonly yes --requirepass \"${REDIS_PASSWORD:-guest}\""]
 
 networks:
   backend:
@@ -65,3 +215,6 @@ networks:
 volumes:
   citatum_data:
   postgres_data:
+  rabbitmq_data:
+  redis_data:
+  celery_beat_data:

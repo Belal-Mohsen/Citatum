@@ -119,55 +119,60 @@ fi
 # ----------------------------
 # Wait for database readiness
 # ----------------------------
-MAX_WAIT_SECONDS="${MAX_WAIT_SECONDS:-60}"
-WAIT_INTERVAL="${WAIT_INTERVAL:-1}"
-ELAPSED=0
+# Skip database check if SKIP_DB_CHECK is set (e.g., for Flower which doesn't need DB)
+if [ "${SKIP_DB_CHECK:-0}" = "1" ]; then
+  log "Skipping database readiness check (SKIP_DB_CHECK=1)"
+else
+  MAX_WAIT_SECONDS="${MAX_WAIT_SECONDS:-60}"
+  WAIT_INTERVAL="${WAIT_INTERVAL:-1}"
+  ELAPSED=0
 
-# Optional jitter to reduce thundering herd in scaled deployments
-if [ "${JITTER_ON_STARTUP:-1}" = "1" ]; then
-  JITTER=$((RANDOM % 3))
-  if [ "$JITTER" -gt 0 ]; then
-    log "Startup jitter: sleeping ${JITTER}s"
-    sleep "$JITTER"
-  fi
-fi
-
-log "Waiting for database to be ready (max ${MAX_WAIT_SECONDS}s)..."
-
-# Set PGPASSWORD only if provided (optional)
-if [ -n "${DB_PASS:-}" ]; then
-  export PGPASSWORD="$DB_PASS"
-fi
-
-PSQL_ARGS=(-h "$DB_HOST" -p "$DB_PORT" -d "$DB_NAME" -c '\q')
-if [ -n "${DB_USER:-}" ]; then
-  PSQL_ARGS=(-h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c '\q')
-fi
-
-until psql "${PSQL_ARGS[@]}" 2>/dev/null; do
-  if [ "$ELAPSED" -ge "$MAX_WAIT_SECONDS" ]; then
-    err "Database connection timeout after ${MAX_WAIT_SECONDS}s"
-    if [ "${DEBUG:-0}" = "1" ]; then
-      err "  Host: $DB_HOST"
-      err "  Port: $DB_PORT"
-      err "  User: ${DB_USER:-<not set>}"
-      err "  Database: $DB_NAME"
-    else
-      err "  Check database configuration, credentials, and network connectivity."
+  # Optional jitter to reduce thundering herd in scaled deployments
+  if [ "${JITTER_ON_STARTUP:-1}" = "1" ]; then
+    JITTER=$((RANDOM % 3))
+    if [ "$JITTER" -gt 0 ]; then
+      log "Startup jitter: sleeping ${JITTER}s"
+      sleep "$JITTER"
     fi
-    exit 1
   fi
 
-  log "Database unavailable - sleeping (${ELAPSED}/${MAX_WAIT_SECONDS}s)"
-  sleep "$WAIT_INTERVAL"
-  ELAPSED=$((ELAPSED + WAIT_INTERVAL))
-done
+  log "Waiting for database to be ready (max ${MAX_WAIT_SECONDS}s)..."
 
-log "Database is ready!"
+  # Set PGPASSWORD only if provided (optional)
+  if [ -n "${DB_PASS:-}" ]; then
+    export PGPASSWORD="$DB_PASS"
+  fi
 
-# Reduce exposure surface: remove password from environment after readiness check
-unset PGPASSWORD || true
-unset DB_PASS || true
+  PSQL_ARGS=(-h "$DB_HOST" -p "$DB_PORT" -d "$DB_NAME" -c '\q')
+  if [ -n "${DB_USER:-}" ]; then
+    PSQL_ARGS=(-h "$DB_HOST" -p "$DB_PORT" -U "$DB_USER" -d "$DB_NAME" -c '\q')
+  fi
+
+  until psql "${PSQL_ARGS[@]}" 2>/dev/null; do
+    if [ "$ELAPSED" -ge "$MAX_WAIT_SECONDS" ]; then
+      err "Database connection timeout after ${MAX_WAIT_SECONDS}s"
+      if [ "${DEBUG:-0}" = "1" ]; then
+        err "  Host: $DB_HOST"
+        err "  Port: $DB_PORT"
+        err "  User: ${DB_USER:-<not set>}"
+        err "  Database: $DB_NAME"
+      else
+        err "  Check database configuration, credentials, and network connectivity."
+      fi
+      exit 1
+    fi
+
+    log "Database unavailable - sleeping (${ELAPSED}/${MAX_WAIT_SECONDS}s)"
+    sleep "$WAIT_INTERVAL"
+    ELAPSED=$((ELAPSED + WAIT_INTERVAL))
+  done
+
+  log "Database is ready!"
+
+  # Reduce exposure surface: remove password from environment after readiness check
+  unset PGPASSWORD || true
+  unset DB_PASS || true
+fi
 
 # ----------------------------
 # Migrations
