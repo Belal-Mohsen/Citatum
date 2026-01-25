@@ -12,12 +12,12 @@ class TopicController(BaseController):
         """Initialize TopicController"""
         super().__init__()
     
-    def get_topic_path(self, topic_id: Union[str, int]) -> str:
+    def get_topic_path(self, topic_name: str) -> str:
         """
-        Get or create topic directory at {self.files_dir}/{topic_id}.
+        Get or create topic directory at {self.files_dir}/{topic_name}.
         
         Args:
-            topic_id: Topic identifier (str or int) - converted to string for path
+            topic_name: Topic name (used as directory name)
         
         Returns:
             Absolute path to topic directory (created if doesn't exist)
@@ -26,13 +26,14 @@ class TopicController(BaseController):
             OSError: If directory creation fails
         """
         try:
-            # Convert topic_id to string for path construction
-            topic_id_str = str(topic_id)
-            topic_path = os.path.join(self.files_dir, topic_id_str)
+            # Sanitize topic_name for filesystem safety
+            # Replace any path separators and other unsafe characters
+            safe_topic_name = topic_name.replace("/", "_").replace("\\", "_").replace("..", "_")
+            topic_path = os.path.join(self.files_dir, safe_topic_name)
             
             # Create directory if it doesn't exist
             os.makedirs(topic_path, exist_ok=True)
             
             return os.path.abspath(topic_path)
         except OSError as e:
-            raise OSError(f"Failed to create topic directory for topic_id {topic_id}: {e}") from e
+            raise OSError(f"Failed to create topic directory for topic_name {topic_name}: {e}") from e

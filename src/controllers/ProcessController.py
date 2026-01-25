@@ -17,19 +17,19 @@ logger = get_logger(__name__)
 class ProcessController(BaseController):
     """Controller for document processing and chunk extraction"""
     
-    def __init__(self, topic_id: Union[str, int]):
+    def __init__(self, topic_name: str):
         """
-        Initialize ProcessController with topic_id.
+        Initialize ProcessController with topic name.
         
         Args:
-            topic_id: Topic identifier (str or int)
+            topic_name: Topic name (used for directory path)
         """
         super().__init__()
-        self.topic_id = topic_id
+        self.topic_name = topic_name
         
         # Get topic path using TopicController and store as project_path
         topic_controller = TopicController()
-        self.project_path = topic_controller.get_topic_path(topic_id)
+        self.project_path = topic_controller.get_topic_path(topic_name)
     
     def get_file_extension(self, document_id: str) -> str:
         """
@@ -240,9 +240,9 @@ class ProcessController(BaseController):
         self,
         file_path: str,
         topic: Topic,
-        document_db_id: int,
+        document_db_id: str,
         db_client: Callable,
-    ) -> Tuple[List[Any], List[int]]:
+    ) -> Tuple[List[Any], List[str]]:
         """
         Chunk a document and store chunks in the database.
         
@@ -253,8 +253,9 @@ class ProcessController(BaseController):
             db_client: Database client (session factory)
         
         Returns:
-            Tuple of (all_chunks: list[Chunk], chunk_ids: list[int])
+            Tuple of (all_chunks: list[Chunk], chunk_ids: list[str])
             Returns empty lists if chunking fails
+            Note: chunk_ids are now UUIDs (strings)
         """
         logger.info(
             f"Starting chunking process for document {document_db_id} "

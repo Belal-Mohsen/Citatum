@@ -16,16 +16,12 @@ class Chunk(CitatumBase):
     
     __tablename__ = "chunks"
     
-    # Primary key
-    chunk_id: int = Column(Integer, primary_key=True, autoincrement=True)
-    
-    # UUID
-    chunk_uuid: str = Column(
+    # Primary key - UUID
+    chunk_id: str = Column(
         UUID(as_uuid=False),
-        unique=True,
+        primary_key=True,
         nullable=False,
-        server_default=func.uuid_generate_v4(),
-        index=True
+        server_default=func.uuid_generate_v4()
     )
     
     # Chunk fields
@@ -35,16 +31,18 @@ class Chunk(CitatumBase):
     chunk_page_number: int | None = Column(Integer, nullable=True)
     chunk_section: str | None = Column(String, nullable=True)
     
-    # Foreign keys
-    chunk_topic_id: int = Column(
-        Integer,
+    # Foreign keys - references UUIDs
+    chunk_topic_id: str = Column(
+        UUID(as_uuid=False),
         ForeignKey("topics.topic_id", ondelete="CASCADE"),
-        nullable=False
+        nullable=False,
+        index=True
     )
-    chunk_document_id: int = Column(
-        Integer,
+    chunk_document_id: str = Column(
+        UUID(as_uuid=False),
         ForeignKey("documents.document_id", ondelete="CASCADE"),
-        nullable=False
+        nullable=False,
+        index=True
     )
     
     # Timestamps
@@ -74,5 +72,6 @@ class Chunk(CitatumBase):
         Index("ix_chunk_topic_id", "chunk_topic_id"),
         Index("ix_chunk_document_id", "chunk_document_id"),
         Index("ix_chunk_page_number", "chunk_page_number"),
+        Index("ix_chunk_order", "chunk_order"),
     )
     

@@ -84,6 +84,46 @@ class PGVectorProvider(VectorDBInterface):
         
         return self.connection_pool
     
+    def _quote_identifier(self, identifier: str) -> str:
+        """
+        Quote PostgreSQL identifier to handle special characters.
+        
+        Args:
+            identifier: Table/column name that may contain special characters
+        
+        Returns:
+            Properly quoted identifier
+        """
+        # Use double quotes to quote identifiers in PostgreSQL
+        # This handles hyphens, spaces, and other special characters
+        return f'"{identifier}"'
+    
+    async def collection_exists(self, collection_name: str) -> bool:
+        """
+        Check if a collection (table) exists.
+        
+        Args:
+            collection_name: Name of the collection
+        
+        Returns:
+            True if collection exists, False otherwise
+        """
+        pool = await self._get_pool()
+        
+        try:
+            async with pool.acquire() as conn:
+                table_exists = await conn.fetchval("""
+                    SELECT EXISTS (
+                        SELECT FROM information_schema.tables 
+                        WHERE table_schema = 'public' 
+                        AND table_name = $1
+                    )
+                """, collection_name)
+                return table_exists
+        except Exception as e:
+            logger.error(f"Error checking if collection {collection_name} exists: {e}", exc_info=True)
+            return False
+    
     async def create_collection(
         self, 
         collection_name: str, 
@@ -107,15 +147,18 @@ class PGVectorProvider(VectorDBInterface):
             async with pool.acquire() as conn:
                 # Drop table if do_reset
                 if do_reset:
-                    await conn.execute(f"DROP TABLE IF EXISTS {collection_name} CASCADE")
+                    quoted_name = self._quote_identifier(collection_name)
+                    await conn.execute(f"DROP TABLE IF EXISTS {quoted_name} CASCADE")
                     logger.info(f"Dropped existing collection: {collection_name}")
                 
                 # Create table with pgvector
                 # Foreign key references chunks table
+                # Quote collection name to handle special characters
+                quoted_name = self._quote_identifier(collection_name)
                 create_table_sql = f"""
-                    CREATE TABLE IF NOT EXISTS {collection_name} (
+                    CREATE TABLE IF NOT EXISTS {quoted_name} (
                         id SERIAL PRIMARY KEY,
-                        chunk_id INTEGER NOT NULL,
+                        chunk_id UUID NOT NULL,
                         text TEXT NOT NULL,
                         metadata JSONB,
                         embedding vector({vector_size}),
@@ -129,7 +172,8 @@ class PGVectorProvider(VectorDBInterface):
                 # Create vector index based on configuration
                 # Check row count for IVFFlat threshold
                 if self.index_type == 'ivfflat':
-                    row_count = await conn.fetchval(f"SELECT COUNT(*) FROM {collection_name}")
+                    quoted_name = self._quote_identifier(collection_name)
+                    row_count = await conn.fetchval(f"SELECT COUNT(*) FROM {quoted_name}")
                     
                     if row_count < self.index_threshold:
                         logger.info(
@@ -191,7 +235,8 @@ class PGVectorProvider(VectorDBInterface):
         
         try:
             async with pool.acquire() as conn:
-                await conn.execute(f"DROP TABLE IF EXISTS {collection_name} CASCADE")
+                quoted_name = self._quote_identifier(collection_name)
+                await conn.execute(f"DROP TABLE IF EXISTS {quoted_name} CASCADE")
                 logger.info(f"Deleted collection: {collection_name}")
                 return True
         
@@ -268,9 +313,10 @@ class PGVectorProvider(VectorDBInterface):
                         "exists": False
                     }
                 
-                # Get row count
+                # Get row count (quote identifier to handle special characters)
+                quoted_name = self._quote_identifier(collection_name)
                 count_result = await conn.fetchval(
-                    f"SELECT COUNT(*) FROM {collection_name}"
+                    f"SELECT COUNT(*) FROM {quoted_name}"
                 )
                 
                 # Get vector dimension from table definition
@@ -303,7 +349,7 @@ class PGVectorProvider(VectorDBInterface):
         texts: List[str],
         metadata: List[dict],
         vectors: List[List[float]],
-        record_ids: Optional[List[int]] = None
+        record_ids: Optional[List[str]] = None
     ) -> bool:
         """
         Insert multiple vectors into a collection.
@@ -388,11 +434,21 @@ class PGVectorProvider(VectorDBInterface):
         
         Returns:
             List of result dictionaries with text, metadata, score, and chunk_id
+        
+        Raises:
+            ValueError: If collection does not exist
         """
+        # Check if collection exists before searching
+        if not await self.collection_exists(collection_name):
+            logger.warning(f"Collection {collection_name} does not exist, cannot search")
+            raise ValueError(f"Collection '{collection_name}' does not exist")
+        
         pool = await self._get_pool()
         
         try:
             async with pool.acquire() as conn:
+                # Quote collection name to handle special characters (e.g., hyphens in UUIDs)
+                quoted_name = self._quote_identifier(collection_name)
                 # Convert query vector list to string format for pgvector
                 # Format: '[0.1,0.2,0.3]' (no spaces, comma-separated)
                 query_vector_str = '[' + ','.join(str(float(v)) for v in query_vector) + ']'
@@ -422,7 +478,7 @@ class PGVectorProvider(VectorDBInterface):
                         text,
                         metadata,
                         {score_expr} as similarity_score
-                    FROM {collection_name}
+                    FROM {quoted_name}
                     ORDER BY {order_expr}
                     LIMIT $2
                     """,
@@ -451,7 +507,7 @@ class PGVectorProvider(VectorDBInterface):
     async def delete_by_ids(
         self,
         collection_name: str,
-        record_ids: List[int]
+        record_ids: List[str]
     ) -> bool:
         """
         Delete records from a collection by their chunk IDs.
@@ -467,10 +523,13 @@ class PGVectorProvider(VectorDBInterface):
         
         try:
             async with pool.acquire() as conn:
+                # Quote collection name to handle special characters
+                quoted_name = self._quote_identifier(collection_name)
+                # Use UUID array for chunk_id matching (chunk_id is now UUID)
                 deleted_count = await conn.execute(
                     f"""
-                    DELETE FROM {collection_name}
-                    WHERE chunk_id = ANY($1::int[])
+                    DELETE FROM {quoted_name}
+                    WHERE chunk_id = ANY($1::uuid[])
                     """,
                     record_ids
                 )

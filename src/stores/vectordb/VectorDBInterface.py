@@ -80,7 +80,7 @@ class VectorDBInterface(ABC):
         texts: List[str],
         metadata: List[dict],
         vectors: List[List[float]],
-        record_ids: Optional[List[int]] = None
+        record_ids: Optional[List[str]] = None
     ) -> bool:
         """
         Insert multiple vectors into a collection.
@@ -90,7 +90,7 @@ class VectorDBInterface(ABC):
             texts: List of text strings
             metadata: List of metadata dictionaries
             vectors: List of embedding vectors
-            record_ids: Optional list of record IDs (e.g., chunk_id)
+            record_ids: Optional list of record UUIDs (e.g., chunk_id as UUID string)
         
         Returns:
             True if successful
@@ -121,14 +121,14 @@ class VectorDBInterface(ABC):
     async def delete_by_ids(
         self,
         collection_name: str,
-        record_ids: List[int]
+        record_ids: List[str]
     ) -> bool:
         """
         Delete records from a collection by their IDs.
         
         Args:
             collection_name: Name of the collection
-            record_ids: List of record IDs to delete
+            record_ids: List of record UUIDs (strings) to delete
         
         Returns:
             True if successful

@@ -50,13 +50,13 @@ class DocumentController(BaseController):
         
         return (True, "file_validate_successfully")
     
-    def generate_unique_filepath(self, orig_file_name: str, topic_id: Union[str, int]) -> Tuple[str, str]:
+    def generate_unique_filepath(self, orig_file_name: str, topic_name: str) -> Tuple[str, str]:
         """
         Generate unique file path for uploaded document.
         
         Args:
             orig_file_name: Original filename from upload
-            topic_id: Topic identifier (str or int)
+            topic_name: Topic name (used for directory path)
         
         Returns:
             Tuple of (file_path: str, file_id: str)
@@ -65,7 +65,7 @@ class DocumentController(BaseController):
         """
         # Get topic path using TopicController
         topic_controller = TopicController()
-        topic_path = topic_controller.get_topic_path(topic_id)
+        topic_path = topic_controller.get_topic_path(topic_name)
         
         # Clean filename
         cleaned_filename = self.get_clean_file_name(orig_file_name)
@@ -154,7 +154,7 @@ class DocumentController(BaseController):
     
     async def delete_document(
         self,
-        document_id: int,
+        document_id: str,
         db_client: Any,
         vectordb_client: Optional[Any] = None,
         embedding_client: Optional[Any] = None
@@ -170,7 +170,7 @@ class DocumentController(BaseController):
         5. Delete document from database
         
         Args:
-            document_id: Document database ID
+            document_id: Document UUID
             db_client: Database client (session factory)
             vectordb_client: Optional vector database client (required for embedding deletion)
             embedding_client: Optional embedding client (required for vector DB operations)
@@ -180,6 +180,7 @@ class DocumentController(BaseController):
             - deleted: bool - Whether document was deleted
             - deleted_chunks_count: int - Number of chunks deleted
             - deleted_embeddings_count: int - Number of embeddings deleted
+            - file_deleted: bool - Whether file was deleted from storage
         
         Raises:
             ValueError: If document not found
@@ -236,14 +237,21 @@ class DocumentController(BaseController):
         document_name = document.document_name
         if "*" in document_name:
             random_key, cleaned_filename = document_name.split("*", 1)
-            # Get topic path
-            topic_controller = TopicController()
-            topic_path = topic_controller.get_topic_path(document.document_topic_id)
-            # Reconstruct file path: {topic_path}/{random_key}_{cleaned_filename}
-            file_path = os.path.join(topic_path, f"{random_key}_{cleaned_filename}")
+            # Get topic to retrieve topic_name for file path
+            topic_model = TopicModel(db_client)
+            topic = await topic_model.get_topic_by_id(document.document_topic_id)
+            if topic:
+                # Get topic path using topic_name
+                topic_controller = TopicController()
+                topic_path = topic_controller.get_topic_path(topic.topic_name)
+                # Reconstruct file path: {topic_path}/{random_key}_{cleaned_filename}
+                file_path = os.path.join(topic_path, f"{random_key}_{cleaned_filename}")
+            else:
+                logger.warning(f"Topic {document.document_topic_id} not found, cannot delete file")
+                file_path = None
             
             # Delete file if it exists
-            if os.path.exists(file_path):
+            if file_path and os.path.exists(file_path):
                 try:
                     os.remove(file_path)
                     file_deleted = True
@@ -251,7 +259,7 @@ class DocumentController(BaseController):
                 except Exception as e:
                     logger.warning(f"Failed to delete file from storage {file_path}: {e}")
                     # Continue with database deletion even if file deletion fails
-            else:
+            elif file_path:
                 logger.warning(f"File not found in storage: {file_path}")
         else:
             logger.warning(f"Could not parse document_name to reconstruct file path: {document_name}")

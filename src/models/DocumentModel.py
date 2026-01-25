@@ -24,7 +24,7 @@ class DocumentModel(BaseDataModel):
     
     async def get_all_topic_documents(
         self, 
-        topic_id: int, 
+        topic_id: str, 
         document_type: str = "PDF",
         page: int = 1, 
         page_size: int = 10
@@ -33,7 +33,7 @@ class DocumentModel(BaseDataModel):
         Get paginated documents for a topic with total count.
         
         Args:
-            topic_id: Topic ID to filter by
+            topic_id: Topic UUID to filter by
             document_type: Document type to filter by
             page: Page number (1-indexed)
             page_size: Number of items per page
@@ -66,12 +66,12 @@ class DocumentModel(BaseDataModel):
                 
                 return documents, total_count
     
-    async def get_document_record(self, topic_id: int, document_name: str) -> Document | None:
+    async def get_document_record(self, topic_id: str, document_name: str) -> Document | None:
         """
         Get specific document by topic_id and name.
         
         Args:
-            topic_id: Topic ID to filter by
+            topic_id: Topic UUID to filter by
             document_name: Document name to filter by
         
         Returns:
@@ -86,12 +86,12 @@ class DocumentModel(BaseDataModel):
             result = await session.execute(stmt)
             return result.scalar_one_or_none()
     
-    async def get_document_by_id(self, document_id: int) -> Document | None:
+    async def get_document_by_id(self, document_id: str) -> Document | None:
         """
-        Get document by document_id.
+        Get document by document UUID.
         
         Args:
-            document_id: Document ID to get
+            document_id: Document UUID to get
         
         Returns:
             Document instance or None if not found
@@ -121,12 +121,12 @@ class DocumentModel(BaseDataModel):
                 total_inserted += len(batch)
             return total_inserted
     
-    async def delete_document(self, document_id: int) -> bool:
+    async def delete_document(self, document_id: str) -> bool:
         """
-        Delete document by document_id.
+        Delete document by document UUID.
         
         Args:
-            document_id: Document ID to delete
+            document_id: Document UUID to delete
         
         Returns:
             True if document was deleted, False if not found
@@ -137,12 +137,12 @@ class DocumentModel(BaseDataModel):
             await session.commit()
             return result.rowcount > 0
     
-    async def delete_all_topic_documents(self, topic_id: int) -> int:
+    async def delete_all_topic_documents(self, topic_id: str) -> int:
         """
         Delete all documents for a specific topic.
         
         Args:
-            topic_id: Topic ID to delete documents for
+            topic_id: Topic UUID to delete documents for
         
         Returns:
             Number of documents deleted

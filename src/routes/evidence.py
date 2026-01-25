@@ -9,7 +9,7 @@ from src.routes.dependencies import (
     get_db_client,
     get_vectordb_client,
     get_embedding_client,
-    get_or_create_topic,
+    get_topic,
 )
 from src.utils.logger import get_logger
 
@@ -33,16 +33,16 @@ class SearchRequest(BaseModel):
     limit: Optional[int] = 5
 
 
-@router.get("/index/info/{topic_id}")
+@router.get("/index/info/{topic_name}")
 async def get_evidence_collection_info(
-    topic_id: int,
+    topic_name: str,
     request: Request,
 ):
     """
     Get evidence collection information for a topic.
     
     Args:
-        topic_id: Topic identifier
+        topic_name: Topic name
         request: FastAPI request object
     
     Returns:
@@ -54,7 +54,8 @@ async def get_evidence_collection_info(
         vectordb_client = get_vectordb_client(request)
         embedding_client = get_embedding_client(request)
         
-        topic = await get_or_create_topic(db_client, topic_id)
+        # Get topic (returns 404 if not found, does not create)
+        topic = await get_topic(db_client, topic_name)
         
         # Create EvidenceController instance
         evidence_controller = EvidenceController(vectordb_client, embedding_client)
@@ -62,7 +63,7 @@ async def get_evidence_collection_info(
         # Call get_evidence_collection_info
         collection_info = await evidence_controller.get_evidence_collection_info(topic)
         
-        logger.info(f"Retrieved collection info for topic {topic_id}")
+        logger.info(f"Retrieved collection info for topic {topic_name}")
         
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -82,9 +83,9 @@ async def get_evidence_collection_info(
         )
 
 
-@router.post("/search/{topic_id}")
+@router.post("/search/{topic_name}")
 async def search_evidence(
-    topic_id: int,
+    topic_name: str,
     search_request: SearchRequest,
     request: Request,
 ):
@@ -92,7 +93,7 @@ async def search_evidence(
     Search evidence collection for relevant chunks.
     
     Args:
-        topic_id: Topic identifier
+        topic_name: Topic name
         search_request: Search request with text and limit
         request: FastAPI request object
     
@@ -105,7 +106,8 @@ async def search_evidence(
         vectordb_client = get_vectordb_client(request)
         embedding_client = get_embedding_client(request)
         
-        topic = await get_or_create_topic(db_client, topic_id)
+        # Get topic (returns 404 if not found, does not create)
+        topic = await get_topic(db_client, topic_name)
         
         # Create EvidenceController
         evidence_controller = EvidenceController(vectordb_client, embedding_client)
@@ -133,7 +135,7 @@ async def search_evidence(
             }
             formatted_results.append(formatted_result)
         
-        logger.info(f"Search completed for topic {topic_id}: {len(formatted_results)} results")
+        logger.info(f"Search completed for topic {topic_name}: {len(formatted_results)} results")
         
         return JSONResponse(
             status_code=status.HTTP_200_OK,
@@ -153,9 +155,9 @@ async def search_evidence(
         )
 
 
-@router.post("/verify/{topic_id}")
+@router.post("/verify/{topic_name}")
 async def verify_claim(
-    topic_id: int,
+    topic_name: str,
     search_request: SearchRequest,
     request: Request,
 ):
@@ -163,7 +165,7 @@ async def verify_claim(
     Verify a claim by searching for relevant evidence chunks.
     
     Args:
-        topic_id: Topic identifier
+        topic_name: Topic name
         search_request: Search request (text is used as claim)
         request: FastAPI request object
     
@@ -176,7 +178,8 @@ async def verify_claim(
         vectordb_client = get_vectordb_client(request)
         embedding_client = get_embedding_client(request)
         
-        topic = await get_or_create_topic(db_client, topic_id)
+        # Get topic (returns 404 if not found, does not create)
+        topic = await get_topic(db_client, topic_name)
         
         # Create EvidenceController
         evidence_controller = EvidenceController(vectordb_client, embedding_client)
@@ -197,7 +200,7 @@ async def verify_claim(
         total_evidence_count = len(supporting_evidence) + len(refuting_evidence)
         
         logger.info(
-            f"Claim verification completed for topic {topic_id}: "
+            f"Claim verification completed for topic {topic_name}: "
             f"{len(supporting_evidence)} supporting, {len(refuting_evidence)} refuting"
         )
         

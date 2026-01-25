@@ -198,7 +198,7 @@ class QdrantDBProvider(VectorDBInterface):
         texts: List[str],
         metadata: List[dict],
         vectors: List[List[float]],
-        record_ids: Optional[List[int]] = None
+        record_ids: Optional[List[str]] = None
     ) -> bool:
         """
         Insert multiple vectors into a collection.
@@ -284,8 +284,8 @@ class QdrantDBProvider(VectorDBInterface):
                 # Extract chunk_id from metadata
                 chunk_id = payload.get('chunk_id')
                 if chunk_id is None:
-                    # Fallback: try to get from point ID if it's an integer
-                    chunk_id = result.id if isinstance(result.id, int) else None
+                    # Fallback: try to get from point ID (can be int or UUID string)
+                    chunk_id = result.id if result.id else None
                 
                 # Extract text from metadata
                 text = payload.get('text', '')
@@ -308,7 +308,7 @@ class QdrantDBProvider(VectorDBInterface):
     async def delete_by_ids(
         self,
         collection_name: str,
-        record_ids: List[int]
+        record_ids: List[str]
     ) -> bool:
         """
         Delete records from a collection by their chunk IDs.

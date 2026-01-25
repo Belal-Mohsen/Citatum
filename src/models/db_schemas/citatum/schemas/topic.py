@@ -1,4 +1,4 @@
-from sqlalchemy import Column, Integer, String, Text, DateTime, func
+from sqlalchemy import Column, String, Text, DateTime, func, UniqueConstraint
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import relationship, Mapped
 from typing import List, TYPE_CHECKING
@@ -17,20 +17,16 @@ class Topic(CitatumBase):
     
     __tablename__ = "topics"
     
-    # Primary key
-    topic_id: int = Column(Integer, primary_key=True, autoincrement=True)
-    
-    # UUID
-    topic_uuid: str = Column(
+    # Primary key - UUID
+    topic_id: str = Column(
         UUID(as_uuid=False),
-        unique=True,
+        primary_key=True,
         nullable=False,
-        server_default=func.uuid_generate_v4(),
-        index=True
+        server_default=func.uuid_generate_v4()
     )
     
     # Topic fields
-    topic_name: str = Column(String, nullable=False)
+    topic_name: str = Column(String, nullable=False, unique=True, index=True)
     topic_description: str | None = Column(Text, nullable=True)
     
     # Timestamps

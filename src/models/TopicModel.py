@@ -35,7 +35,16 @@ class TopicModel(BaseDataModel):
                 else:
                     return topic
 
-    async def get_topic_by_id(self, topic_id: int) -> Topic | None: 
+    async def get_topic_by_id(self, topic_id: str) -> Topic | None: 
+        """
+        Get topic by UUID.
+        
+        Args:
+            topic_id: Topic UUID
+        
+        Returns:
+            Topic instance or None if not found
+        """
         async with self.db_client() as session:
             async with session.begin():
                 query = select(Topic).where(Topic.topic_id == topic_id)
@@ -44,6 +53,15 @@ class TopicModel(BaseDataModel):
                 return topic
                       
     async def get_topic_by_name(self, topic_name: str) -> Topic | None:
+        """
+        Get topic by name.
+        
+        Args:
+            topic_name: Topic name
+        
+        Returns:
+            Topic instance or None if not found
+        """
         async with self.db_client() as session:
             async with session.begin():
                 query = select(Topic).where(Topic.topic_name == topic_name)

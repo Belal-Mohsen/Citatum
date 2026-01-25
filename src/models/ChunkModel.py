@@ -49,12 +49,12 @@ class ChunkModel(BaseDataModel):
             await session.refresh(chunk)
             return chunk
     
-    async def get_chunk(self, chunk_id: int) -> Chunk | None:
+    async def get_chunk(self, chunk_id: str) -> Chunk | None:
         """
-        Get chunk by ID.
+        Get chunk by UUID.
         
         Args:
-            chunk_id: Chunk ID to get
+            chunk_id: Chunk UUID to get
         
         Returns:
             Chunk instance or None if not found
@@ -88,12 +88,12 @@ class ChunkModel(BaseDataModel):
                 total_inserted += len(batch)
             return total_inserted
     
-    async def delete_chunks_by_document_id(self, document_id: int) -> int:
+    async def delete_chunks_by_document_id(self, document_id: str) -> int:
         """
         Delete all chunks for a document, return row count.
         
         Args:
-            document_id: Document ID to delete chunks for
+            document_id: Document UUID to delete chunks for
         
         Returns:
             Number of chunks deleted
@@ -106,7 +106,7 @@ class ChunkModel(BaseDataModel):
     
     async def get_document_chunks(
         self, 
-        document_id: int, 
+        document_id: str, 
         page_no: int = 1, 
         page_size: int = 50
     ) -> list[Chunk]:
@@ -114,7 +114,7 @@ class ChunkModel(BaseDataModel):
         Get paginated chunks for a document.
         
         Args:
-            document_id: Document ID to filter by
+            document_id: Document UUID to filter by
             page_no: Page number (1-indexed)
             page_size: Number of items per page
         
@@ -132,12 +132,12 @@ class ChunkModel(BaseDataModel):
             result = await session.execute(stmt)
             return list(result.scalars().all())
     
-    async def get_total_chunks_count(self, document_id: int) -> int:
+    async def get_total_chunks_count(self, document_id: str) -> int:
         """
         Get total chunk count for a document.
         
         Args:
-            document_id: Document ID to count chunks for
+            document_id: Document UUID to count chunks for
         
         Returns:
             Total number of chunks

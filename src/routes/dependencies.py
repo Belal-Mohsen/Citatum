@@ -33,8 +33,41 @@ def get_embedding_client(request: Request) -> Any:
     return _require_app_state(request, "embedding_client", "Embedding client not configured")
 
 
-async def get_or_create_topic(db_client: Callable, topic_id: int) -> Topic:
-    """Get or create Topic row for a numeric topic_id."""
+async def get_or_create_topic(db_client: Callable, topic_name: str) -> Topic:
+    """
+    Get or create Topic row by topic name.
+    
+    Args:
+        db_client: Database client (session factory)
+        topic_name: Topic name (used as identifier)
+    
+    Returns:
+        Topic instance
+    """
     topic_model = await TopicModel.create_instance(db_client)
-    return await topic_model.get_topic_or_create(f"topic_{topic_id}")
+    return await topic_model.get_topic_or_create(topic_name)
+
+
+async def get_topic(db_client: Callable, topic_name: str) -> Topic:
+    """
+    Get Topic row by topic name (does not create if not found).
+    
+    Args:
+        db_client: Database client (session factory)
+        topic_name: Topic name (used as identifier)
+    
+    Returns:
+        Topic instance
+    
+    Raises:
+        HTTPException: 404 if topic not found
+    """
+    topic_model = await TopicModel.create_instance(db_client)
+    topic = await topic_model.get_topic_by_name(topic_name)
+    if topic is None:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"Topic '{topic_name}' not found"
+        )
+    return topic
 

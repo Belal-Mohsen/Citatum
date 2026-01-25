@@ -16,16 +16,12 @@ class Document(CitatumBase):
     
     __tablename__ = "documents"
     
-    # Primary key
-    document_id: int = Column(Integer, primary_key=True, autoincrement=True)
-    
-    # UUID
-    document_uuid: str = Column(
+    # Primary key - UUID
+    document_id: str = Column(
         UUID(as_uuid=False),
-        unique=True,
+        primary_key=True,
         nullable=False,
-        server_default=func.uuid_generate_v4(),
-        index=True
+        server_default=func.uuid_generate_v4()
     )
     
     # Document fields
@@ -39,11 +35,12 @@ class Document(CitatumBase):
     document_journal: str | None = Column(String, nullable=True)
     document_metadata: dict[str, Any] | None = Column(JSONB, nullable=True)
     
-    # Foreign key
-    document_topic_id: int = Column(
-        Integer,
+    # Foreign key - references topic UUID
+    document_topic_id: str = Column(
+        UUID(as_uuid=False),
         ForeignKey("topics.topic_id", ondelete="CASCADE"),
-        nullable=False
+        nullable=False,
+        index=True
     )
     
     # Timestamps
@@ -74,5 +71,6 @@ class Document(CitatumBase):
         Index("ix_document_topic_id", "document_topic_id"),
         Index("ix_document_type", "document_type"),
         Index("ix_document_doi", "document_doi"),
+        Index("ix_document_name", "document_name"),
     )
     
