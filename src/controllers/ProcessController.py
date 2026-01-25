@@ -42,27 +42,36 @@ class ProcessController(BaseController):
             File extension (e.g., '.txt', '.pdf') including the dot
         """
         _, ext = os.path.splitext(document_id)
-        return ext
+        return ext.lower()  # Normalize to lowercase for comparison
     
-    def get_file_loader(self, document_id: str) -> Optional[object]:
+    def get_file_loader(self, file_path: str) -> Optional[object]:
         """
         Get appropriate LangChain loader for the document.
         
         Args:
-            document_id: Document identifier (filename)
+            file_path: Full absolute path to the file
         
         Returns:
             LangChain loader instance (TextLoader or PyMuPDFLoader) or None if unsupported
         """
-        # Construct file path: {self.project_path}/{document_id}
-        file_path = os.path.join(self.project_path, document_id)
-        
         # Check if file exists
         if not os.path.exists(file_path):
+            logger.error(
+                f"File not found at path: {file_path} | "
+                f"topic_id={self.topic_id} | project_path={self.project_path}"
+            )
+            # List files in topic directory for debugging
+            if os.path.exists(self.project_path):
+                try:
+                    files_in_dir = os.listdir(self.project_path)
+                    logger.debug(f"Files in topic directory ({self.project_path}): {files_in_dir}")
+                except Exception as e:
+                    logger.warning(f"Could not list topic directory: {e}")
             return None
         
         # Get file extension
-        extension = self.get_file_extension(document_id)
+        extension = self.get_file_extension(file_path)
+        logger.debug(f"File extension: {extension} for {file_path}")
         
         # Return appropriate loader based on extension
         if extension == '.txt':
@@ -70,32 +79,44 @@ class ProcessController(BaseController):
         elif extension == '.pdf':
             return PyMuPDFLoader(file_path)
         else:
-            # Unsupported format
+            logger.warning(f"Unsupported file extension: {extension} for {file_path}")
             return None
     
-    def get_file_content(self, document_id: str) -> Optional[List[LangChainDocument]]:
+    def get_file_content(self, file_path: str) -> Optional[List[LangChainDocument]]:
         """
         Load document content with page numbers.
         
         Args:
-            document_id: Document identifier (filename)
+            file_path: Full absolute path to the file
         
         Returns:
             List of LangChain Document objects or None if file cannot be loaded
         """
+        logger.info(f"Loading file content from path: {file_path}")
+        
         # Get file loader
-        loader = self.get_file_loader(document_id)
+        loader = self.get_file_loader(file_path)
         
         if loader is None:
+            logger.error(f"Failed to create file loader for: {file_path}")
             return None
         
         # Call loader.load() if loader exists
         try:
+            logger.debug(f"Calling loader.load() for: {file_path}")
             documents = loader.load()
+            logger.info(
+                f"Successfully loaded file | path={file_path} | "
+                f"documents_count={len(documents)} | "
+                f"total_chars={sum(len(doc.page_content) for doc in documents)}"
+            )
             return documents
         except Exception as e:
             # Log error and return None
-            logger.error(f"Error loading file {document_id}: {e}")
+            logger.error(
+                f"Error loading file {file_path} | error={str(e)}",
+                exc_info=True
+            )
             return None
     
     def process_file_content(
@@ -240,23 +261,44 @@ class ProcessController(BaseController):
             f"(topic_id={topic.topic_id}, file_path={file_path})"
         )
         
-        # Derive filename on disk (relative to topic path) from file_path
-        filename_on_disk = os.path.basename(file_path)
-        logger.debug(f"Extracted filename: {filename_on_disk}")
+        # Verify file exists at the provided absolute path
+        if not os.path.exists(file_path):
+            logger.error(
+                f"File does not exist at provided path | file_path={file_path} | "
+                f"topic_id={topic.topic_id} | document_db_id={document_db_id} | "
+                f"project_path={self.project_path}"
+            )
+            # List files in topic directory for debugging
+            if os.path.exists(self.project_path):
+                try:
+                    files_in_dir = os.listdir(self.project_path)
+                    logger.debug(f"Files in topic directory ({self.project_path}): {files_in_dir}")
+                except Exception as e:
+                    logger.warning(f"Could not list topic directory: {e}")
+            return [], []
         
-        # Load file content via LangChain loader
-        logger.info(f"Loading file content: {filename_on_disk}")
-        file_content = self.get_file_content(filename_on_disk)
+        # Extract filename for logging
+        filename_on_disk = os.path.basename(file_path)
+        logger.debug(
+            f"Processing file | filename={filename_on_disk} | "
+            f"absolute_path={file_path} | topic_id={topic.topic_id}"
+        )
+        
+        # Load file content using the absolute path directly
+        logger.info(f"Loading file content from absolute path: {file_path}")
+        file_content = self.get_file_content(file_path)
         if file_content is None:
-            logger.warning(
-                f"Failed to load file content for chunking: {filename_on_disk} "
-                f"(topic_id={topic.topic_id}, document_db_id={document_db_id})"
+            logger.error(
+                f"Failed to load file content for chunking | file_path={file_path} | "
+                f"filename={filename_on_disk} | topic_id={topic.topic_id} | "
+                f"document_db_id={document_db_id} | project_path={self.project_path}"
             )
             return [], []
         
         logger.info(
-            f"File loaded successfully: {len(file_content)} document(s) extracted "
-            f"from {filename_on_disk}"
+            f"File loaded successfully | file_path={file_path} | "
+            f"documents_count={len(file_content)} | "
+            f"total_chars={sum(len(doc.page_content) for doc in file_content)}"
         )
         
         # Chunk the file content using configured chunk_size / overlap

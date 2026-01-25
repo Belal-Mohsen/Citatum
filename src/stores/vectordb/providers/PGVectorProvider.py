@@ -393,6 +393,10 @@ class PGVectorProvider(VectorDBInterface):
         
         try:
             async with pool.acquire() as conn:
+                # Convert query vector list to string format for pgvector
+                # Format: '[0.1,0.2,0.3]' (no spaces, comma-separated)
+                query_vector_str = '[' + ','.join(str(float(v)) for v in query_vector) + ']'
+                
                 # Build query based on distance method
                 # For cosine: 1 - distance = similarity
                 # For l2: lower distance = higher similarity (inverse)
@@ -422,7 +426,7 @@ class PGVectorProvider(VectorDBInterface):
                     ORDER BY {order_expr}
                     LIMIT $2
                     """,
-                    query_vector,
+                    query_vector_str,
                     limit
                 )
                 
