@@ -14,7 +14,7 @@ project_root = Path(__file__).resolve().parents[5]
 sys.path.insert(0, str(project_root))
 
 # Import base and models (using shorter imports)
-from src.models import CitatumBase, Topic, Document, Chunk
+from src.models import CitatumBase, Topic, Document, Chunk, CeleryTaskExecution
 from src.utils.config import config as app_config
 
 # this is the Alembic Config object, which provides

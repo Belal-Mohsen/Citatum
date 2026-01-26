@@ -1,5 +1,4 @@
-"""Routes package.
-
+"""Celery tasks package.
 """
 
 __all__: list[str] = []
