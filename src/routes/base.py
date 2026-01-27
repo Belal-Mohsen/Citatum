@@ -25,3 +25,8 @@ async def health():
     logger.debug("Health check endpoint accessed")
     return {"status": "healthy"}
 
+
+@router.head("/health")
+async def health_head():
+    """Health check for HEAD requests"""
+    return {}

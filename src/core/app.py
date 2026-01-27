@@ -9,6 +9,7 @@ from src.utils.logger import get_logger
 from src.utils.database import create_db_session_factory
 from src.stores.vectordb.VectorDBProviderFactory import VectorDBProviderFactory
 from src.stores.llm.LLMProviderFactory import LLMProviderFactory
+from src.utils.metrics import setup_metrics
 
 logger = get_logger(__name__)
 
@@ -94,6 +95,7 @@ def create_app() -> FastAPI:
     
     # Setup middleware (must be before routers)
     setup_middleware(app)
+    setup_metrics(app)
     
     # Include routers
     app.include_router(base.router)

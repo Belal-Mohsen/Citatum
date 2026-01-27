@@ -277,6 +277,20 @@ services:
       - backend
     restart: always
 
+    # Nginx Service
+  nginx:
+    image: nginx:stable-alpine3.20-perl
+    container_name: nginx
+    ports:
+      - "8080:80"
+    volumes:
+      - ./nginx/default.conf:/etc/nginx/conf.d/default.conf
+    depends_on:
+      - fastapi
+    networks:
+      - backend
+    restart: always
+
 networks:
   backend:
     driver: bridge
