@@ -10,7 +10,9 @@ celery_app = Celery(
     "citatum",
     broker=config.celery_broker_url,
     backend=config.celery_result_backend,
-    include=["src.tasks.document_tasks"],
+    include=[
+        "src.tasks.document_tasks",
+        "src.tasks.maintenance"],
 )
 
 # Celery configuration
@@ -45,14 +47,13 @@ celery_app.conf.update(
     },
 
     # Beat schedule for periodic tasks (uncomment when tasks are implemented)
-    # beat_schedule={
-    #     'cleanup-old-task-records': {
-    #         'task': "src.tasks.maintenance.clean_celery_executions_table",
-    #         'schedule': 10,
-    #         'args': ()
-    #     }
-    # },
+    beat_schedule={
+        'cleanup-old-task-records': {
+            'task': "src.tasks.maintenance.clean_celery_executions_table",
+            'schedule': 3600,  # every hour
+            'args': ()
+        }
+    },
 )
 celery_app.conf.task_default_queue = "default"
 logger.info(f"Celery app configured with broker: {config.celery_broker_url}")
-
